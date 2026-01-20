@@ -1,0 +1,20 @@
+# C++ 编译生成的二进制文件
+*.exe
+*.o
+*.obj
+*.out
+
+# VS Code 配置与临时文件
+.vscode/ipch/
+.vscode/msvc.json
+.vscode/*.log
+
+# 操作系统临时文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 构建目录
+build/
+bin/
+obj/
