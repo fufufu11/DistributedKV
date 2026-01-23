@@ -1,0 +1,8 @@
+[
+{
+  "directory": "D:/CODE/kamaCoder/DistributedKV/build",
+  "command": "C:\\msys64\\mingw64\\bin\\g++.exe -ID:/CODE/kamaCoder/DistributedKV/include -g -std=c++20 -Wall -Wextra -Wpedantic -g -O2 -march=native -o CMakeFiles\\DistributedKV_bin.dir\\src\\main.cpp.obj -c D:\\CODE\\kamaCoder\\DistributedKV\\src\\main.cpp",
+  "file": "D:\\CODE\\kamaCoder\\DistributedKV\\src\\main.cpp",
+  "output": "CMakeFiles\\DistributedKV_bin.dir\\src\\main.cpp.obj"
+}
+]
