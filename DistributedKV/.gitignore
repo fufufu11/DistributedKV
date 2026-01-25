@@ -3,11 +3,18 @@ build/
 bin/
 out/
 
+# Build metadata
+compile_commands.json
+compile_commands/
+
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Trae internal documents
+.trae/documents/
 
 # Compiled files
 *.o

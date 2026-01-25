@@ -109,3 +109,83 @@ public:
      */
     bool remove(K key);
 };
+
+template <typename K, typename V>
+bool SkipList<K, V>::insert(K key, V value) {
+    // 1. 初始化 update 数组，用于记录每一层中目标 key 的前驱节点
+    std::vector<Node<K, V>*> update(max_level, nullptr);
+    Node<K, V>* current = head;
+
+    // 2. 从最高层向下寻找插入位置
+    for(int i = current_level - 1; i >= 0; i--){
+        // 在当前层级，向右移动，直到下一个节点的 key 大于等于目标 key
+        while(current->forward[i] && current->forward[i]->key < key){
+            current = current->forward[i];
+        }
+        // 记录当前层级的前驱节点
+        update[i] = current;
+    }
+
+    // 3. 检查是否已存在该 Key
+    // current 现在指向 Level 0 的前驱，检查它的下一个节点
+    current = current->forward[0];
+    if(current && current->key == key){
+        current->value = value; // Key 存在，更新 Value
+        return true;
+    }
+
+    // 4. 生成新节点的随机层数
+    int new_level = random_level();
+
+    // 5. 如果新层数超过当前跳表的最大层数，需要更新 update 数组
+    // 将超出的层数的前驱指向 head
+    if(new_level > current_level){
+        for(int i = current_level; i < new_level; i++){
+            update[i] = head;
+        }
+        current_level = new_level;
+    }
+
+    // 6. 创建新节点
+    // 使用 make_unique 创建节点，确保异常安全
+    auto new_node = std::make_unique<Node<K,V>>(key, value, new_level);
+    Node<K, V>* ptr = new_node.get(); // 获取裸指针用于链表操作
+
+    // 7. 逐层调整指针，将新节点插入链表
+    for(int i = 0; i < new_level; i++){
+        // 新节点指向前驱的下一个节点
+        ptr->forward[i] = update[i]->forward[i];
+        // 前驱指向新节点
+        update[i]->forward[i] = ptr;
+    }
+
+    // 8. 将新节点的所有权移交给 nodes_storage 管理，避免内存泄漏
+    nodes_storage.push_back(std::move(new_node));
+    return true;
+}
+
+template <typename K, typename V>
+std::optional<V> SkipList<K, V>::search(K key){
+    // 从头结点（哨兵）出发。head 不存有效数据，只用于统一边界处理
+    Node<K, V>* current = head;
+
+    // 从当前跳表“实际最高层”开始逐层下沉查找：
+    // 在每一层都尽量向右走，直到右侧节点的 key >= 目标 key（或到达 NULL）为止
+    for(int i = current_level - 1; i >= 0; i--) {
+        // forward[i] 相当于这一层的 next 指针
+        // 循环结束时，current 停在该层“严格小于 key 的最后一个节点”（即前驱节点）
+        while(current->forward[i] && current->forward[i]->key < key) {
+            current = current->forward[i];
+        }
+    }
+
+    // 走完所有层后，current 停在 Level 0 的前驱节点上
+    // 候选命中节点是 Level 0 的下一个节点
+    current = current->forward[0];
+    if(current && current->key == key) {
+        // 命中：返回一个“有值”的 optional
+        return current->value;
+    }
+    // 未命中：返回一个“空”的 optional
+    return std::nullopt;
+}

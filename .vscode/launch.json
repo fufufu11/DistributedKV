@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": true,
-      "cwd": "d:/CODE/kamaCoder/01_basics/pointers_vs_references",
-      "program": "d:/CODE/kamaCoder/01_basics/pointers_vs_references/build/Debug/outDebug",
+      "cwd": "d:/CODE/kamaCoder/DistributedKV",
+      "program": "d:/CODE/kamaCoder/DistributedKV/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
