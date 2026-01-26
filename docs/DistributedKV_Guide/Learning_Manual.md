@@ -15,7 +15,9 @@
         - [3.4.3 复杂度分析](#343-复杂度分析)
         - [3.4.4 查找操作详解 (Search)](#344-查找操作详解-search)
         - [3.4.5 Search 的复杂度与工程注意事项](#345-search-的复杂度与工程注意事项)
-    - [3.5 跳表单元测试（insert/search）](#35-跳表单元测试insertsearch)
+        - [3.4.6 删除操作详解 (Remove)](#346-删除操作详解-remove)
+        - [3.4.7 Remove 的时空复杂度与工程注意事项](#347-remove-的时空复杂度与工程注意事项)
+    - [3.5 跳表单元测试（insert/search/remove）](#35-跳表单元测试insertsearchremove)
 - [4. 分布式共识：Raft 协议](#4-分布式共识raft-协议)
 - [5. 现代 C++ 内存管理：智能指针与 RAII](#5-现代-c-内存管理智能指针与-raii)
     - [5.1 什么是 RAII？](#51-什么是-raii)
@@ -192,16 +194,88 @@ Level 0: ... 7 -> 8 (New) -> 9 ...
     - 最大 key：高层会频繁右移，最终落到最接近 key 的前驱节点。
     - 未命中：候选节点为空或 key 不相等。
 
-### 3.5 跳表单元测试（insert/search）
+#### 3.4.6 删除操作详解 (Remove)
+
+删除操作的目标是：给定 `key`，将对应节点从跳表的各层链表中“断链”，使其在逻辑上不可达（后续 `search(key)` 未命中）。
+
+**删除的关键直觉：**
+- 删除与插入的第一阶段完全同构：都需要“从高层向右移动，再逐层下沉”，并在每一层记录目标 key 的前驱节点到 `update[]`。
+- 删除本质是“拆网”：用 `update[]` 在每一层把指向目标节点的指针改为跨过它。
+
+**删除步骤（与本项目实现对齐）：**
+1. **构造 `update[]`（Find Predecessors）**：
+   - 从 `head` 出发，站在最高层 `current_level - 1`。
+   - 在每一层尽量向右走，直到 `forward[i]->key >= key` 或到达 NULL；此时 `current` 是该层前驱，记录 `update[i] = current`。
+2. **定位候选目标节点 `target`**：
+   - 候选节点位于 Level 0：`target = update[0]->forward[0]`。
+   - 若 `target == nullptr` 或 `target->key != key`：说明 key 不存在，删除失败。
+3. **逐层断链（Unlink Pointers）**：
+   - 从 `i=0` 到 `i=current_level-1`：
+     - 只有当 `update[i]->forward[i] == target` 时，才执行 `update[i]->forward[i] = target->forward[i]`。
+   - 为什么需要这个判断：因为 `target` 的高度可能小于 `current_level`，更高层本来就不包含该节点；对这些层不应修改指针。
+4. **收缩 `current_level`**：
+   - 删除后如果最高层只剩 `head`（即 `head->forward[current_level - 1] == nullptr`），就应当将 `current_level` 逐层下调，直到该层非空或降到 1。
+   - 这不会影响正确性，但能避免“空层”带来的额外遍历开销。
+
+**3.4.6.1 update[] 与断链示意图**
+
+为了把“断链”直观化，可以把删除理解为：在每一层把 `update[i]` 指向 `target` 的边，改成指向 `target` 的后继。
+
+```text
+假设要删除 key=8，且 Level 0/1 都包含该节点：
+
+Before（断链前）
+Level 1: ... 7 (update[1]) -> 8 (target) -> 9 -> ...
+Level 0: ... 7 (update[0]) -> 8 (target) -> 9 -> ...
+
+After（断链后）
+Level 1: ... 7 (update[1]) -----------> 9 -> ...
+Level 0: ... 7 (update[0]) -----------> 9 -> ...
+```
+
+```text
+注意：target 的高度可能不足以出现在更高层。
+例如 target 只出现在 Level 0 时：
+Level 1: ... 7 (update[1]) -> 9 -> ...        （这一层没有 8）
+Level 0: ... 7 (update[0]) -> 8 (target) -> 9 -> ...
+因此断链时必须先判断：update[i]->forward[i] == target
+```
+
+**物理删除 vs Tombstone（联系 MemTable/LSM 的真实语义）**
+- **物理删除（本任务做法）**：节点从链表断开后不可达；若同时释放内存，则该节点占用的内存也被回收。
+- **Tombstone（LSM 常见做法）**：并不立即物理移除，而是写入“删除标记”，后续通过 Compaction 清理；这样才能正确处理“删除覆盖旧值”的语义，并避免跨层文件间的歧义。
+
+**本项目的内存所有权模型（工程注意事项）**
+- forward 中使用的是裸指针，但节点由 `nodes_storage`（`std::unique_ptr` 容器）统一持有。
+- 因此删除至少需要完成“断链”（保证逻辑不可达）；若希望回收内存，需要同时从 `nodes_storage` 中擦除对应 `unique_ptr`。
+
+**阶段策略（本项目当前选择）**
+- 当前阶段（仅 MemTable/跳表）：先实现并验收物理删除（断链 + 从 `nodes_storage` 擦除以回收内存）。
+- 后续阶段（引入 SSTable 并打通 Get/Compaction）：删除语义迁移为 Tombstone，并由 Compaction 负责清理旧版本与删除标记。
+
+#### 3.4.7 Remove 的时空复杂度与工程注意事项
+
+- **时间复杂度**：
+    - 平均 $O(\log n)$：构造 `update[]` 需要一次“从高到低”的查找；断链最多改动 `current_level` 条指针；收缩层级最多下降到 1。
+    - 最坏 $O(n)$：当跳表退化（极端概率或数据/随机性导致接近链表）时，定位前驱会退化为线性扫描。
+- **额外空间复杂度**：
+    - $O(\text{max\_level})$：`update[]` 需要为每一层保存一个前驱指针。
+    - 其余为 $O(1)$：少量临时指针变量。
+- **工程注意事项**：
+    - 断链时必须检查 `update[i]->forward[i] == target`，避免访问 `target->forward[i]` 的越界风险（target 高度不足时更高层不存在该指针）。
+    - 删除后收缩 `current_level` 能减少后续 `search/insert/remove` 在空层的无效遍历。
+    - 本项目用 `nodes_storage`（`std::vector<std::unique_ptr<Node<...>>>`）持有节点：若你选择“真物理删除并回收内存”，需要从该容器中擦除；该擦除是线性查找 + `erase`，单次可能是 $O(n)$ 的移动成本（作为教学实现可以接受，后续可再工程化优化）。
+
+### 3.5 跳表单元测试（insert/search/remove）
 
 在本项目中，跳表的单元测试位于：
 - `tests/skiplist_test.cpp`
 
-当前测试范围聚焦于 `insert/search` 的基础正确性与“多层路径是否能走通”。为了让测试稳定可复现（不被随机层数干扰），测试中刻意使用了两种极端概率：
+当前测试范围聚焦于 `insert/search/remove` 的基础正确性与“多层路径是否能走通”。为了让测试稳定可复现（不被随机层数干扰），测试中刻意使用了两种极端概率：
 - `prob = 0.0f`：`random_level()` 恒为 1，跳表退化为单层有序链表，便于验证最基础的插入与查询
 - `prob = 1.0f`：节点层数恒增长到 `max_level`，用于覆盖扩层与多层 `forward` 指针维护路径
 
-#### 3.5.1 当前用例覆盖点（7 个）
+#### 3.5.1 当前已实现用例覆盖点（7 个）
 
 - 空表查找应未命中
 - 单条插入后应命中；未插入 key 仍未命中
@@ -211,10 +285,21 @@ Level 0: ... 7 -> 8 (New) -> 9 ...
 - 强制全升层（`prob=1.0f`）下，插入与查询应正确
 - `std::string` 作为 key 的模板实例化与比较路径可用
 
-#### 3.5.2 验收结果记录
+#### 3.5.2 remove 建议覆盖点（待实现）
+
+为了补齐删除逻辑的正确性，建议至少覆盖以下路径（优先固定 `prob=0.0f` 让结构退化为单层，便于稳定复现）：
+
+- 删除不存在的 key：`remove` 返回 false，且表结构不应被破坏（已存在 key 仍可查）。
+- 插入→删除→查找：被删 key 查不到；未删 key 仍可查。
+- 删除后再插入同 key：应能重新插入并查到新 value。
+- 随机删除一半：插入 `[0,n)`，打乱后删除前半；验证已删查不到、未删查得到。
+- （可选增强）使用 `prob=1.0f` 覆盖多层断链路径，验证多层 forward 的一致性。
+
+#### 3.5.3 验收结果记录
 
 - 运行方式：构建后执行 `ctest --output-on-failure`
 - 最近一次结果：7/7 tests passed（insert/search 相关测试全部通过）
+- remove 增补后结果：（待你实现 remove 与新增测试后填写）
 
 
 ---
@@ -412,7 +497,26 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
 本项目使用 CMake 作为构建系统，并通过 CTest 运行测试用例：
 - 根目录存在 `CMakeLists.txt`，会构建跳表测试可执行文件（如 `skiplist_test`）
 - 测试框架使用 GoogleTest（GTest），并通过 CMake 的 `gtest_discover_tests` 自动注册到 CTest
-- 仓库提供 `build.ps1` 脚本用于一键配置、编译并运行 `ctest --output-on-failure`
+### 6.2 本项目的构建现状
+仓库根目录提供了 `build.ps1` (PowerShell) 脚本，旨在简化 Windows 环境下的构建流程。
+
+**脚本功能：**
+1. **自动检测 CMake**：会在常见路径（如 Visual Studio 组件目录、默认安装目录）下查找 `cmake.exe`。
+2. **智能选择生成器**：
+   - 优先检测 `Ninja` (最快)。
+   - 其次检测 `MinGW Makefiles` (如果安装了 MinGW 且有 `mingw32-make` 或 `make`)。
+   - 最后回退到默认生成器 (通常是 Visual Studio MSBuild)。
+3. **依赖管理**：自动配置 `googletest`，并设置了 `-DCMAKE_TLS_VERIFY=OFF` 以解决部分网络环境下的 SSL 证书问题。
+4. **一键测试**：构建完成后自动运行 `ctest`，输出测试结果。
+
+**使用方法：**
+```powershell
+# 默认构建
+.\build.ps1
+
+# 清理并重新构建
+.\build.ps1 --clean
+```
 
 ### 6.3 是否有比 CMake 更高级的？
 从行业现状看，CMake 仍是 C++ 领域最主流的构建系统之一，尤其在跨平台库、系统级软件和开源项目中依然占主导。与此同时，Bazel、Meson、XMake 等更现代的方案在部分团队中增长，但并没有形成对 CMake 的全面替代，它们只是不同的工程取舍。
@@ -529,6 +633,7 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
         *   利用 `update` 数组找到目标 Key 的所有前驱节点。
         *   逐层断开链接：`update[i]->forward[i] = target->forward[i]`。
         *   **注意**：删除后需检查是否需要降低跳表的 `current_max_level`（如果最高层只剩头节点）。
+    *   **策略**：本周先以物理删除完成数据结构验收；当第 4–6 周引入 SSTable/Compaction 后，删除语义切换为 Tombstone 与 LSM 对齐。
 
 *   **任务四：大规模随机性测试 (Stability Test)（部分完成）**
     *   **实战**：编写 `tests/skiplist_test.cpp`。

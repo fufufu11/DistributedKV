@@ -1,0 +1,7 @@
+CompileFlags:
+  Add: 
+    - "-xc++"
+    - "-std=c++20"
+    - "-ID:/CODE/DistributedKV/include"
+    - "-Wno-unknown-pragmas"
+    - "--driver-mode=cl"

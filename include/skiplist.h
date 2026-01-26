@@ -6,7 +6,7 @@
 /**
  * @brief 跳表节点结构体
  * @tparam K 键类型
- * @tparam V 值类型
+ * @tparam V 值类型 
  */
 template <typename K, typename V>
 struct Node {
@@ -188,4 +188,61 @@ std::optional<V> SkipList<K, V>::search(K key){
     }
     // 未命中：返回一个“空”的 optional
     return std::nullopt;
+}
+
+template <typename K, typename V>
+bool SkipList<K, V>::remove(K key){
+    /**
+     * @brief 删除指定 key 对应的节点（当前阶段采用物理删除）
+     *
+     * 删除流程与 insert 的“寻找前驱节点”阶段同构：
+     * 1) 用 update[] 记录每一层中目标 key 的前驱节点；
+     * 2) 在第 0 层确认目标节点是否存在；
+     * 3) 逐层断链（把前驱的 forward 指向目标的后继）；
+     * 4) 必要时收缩 current_level；
+     * 5) 从 nodes_storage 中擦除该节点以回收内存。
+     */
+
+    // update[i] 记录第 i 层中“目标 key 的前驱节点”
+    std::vector<Node<K, V>*> update(max_level, nullptr);
+    Node<K, V>* current = head;
+
+    // 从最高层向下寻找：每一层都尽量向右走，直到下一个节点的 key >= 目标 key
+    for(int i = current_level - 1; i >= 0; i--) {
+        while(current->forward[i] && current->forward[i]->key < key) {
+            current = current->forward[i];
+        }
+        // 记录该层的前驱节点，供后续断链使用
+        update[i] = current;
+    }
+
+    // 走完所有层后，current 与 update[0] 等价：都是 Level 0 的前驱节点
+    // 候选目标节点位于 Level 0 的下一个位置
+    Node<K, V>* target = current->forward[0];
+    if(!target || target->key != key) {
+        // key 不存在：不修改结构
+        return false;
+    }
+
+    // 逐层断链：如果该层确实指向 target，才把指针改为跨过 target
+    // 注意：target 的高度可能小于 current_level，更高层可能根本不包含 target
+    for(int i = 0; i < current_level; i++) {
+        if(update[i]->forward[i] == target) {
+            update[i]->forward[i] = target->forward[i];
+        }
+    }
+
+    // 删除后如果最高层为空（只剩 head），则收缩 current_level，避免后续遍历空层
+    while(current_level > 1 && head->forward[current_level - 1] == nullptr) {
+        --current_level;
+    }
+
+    // 断链仅保证“逻辑不可达”；要回收内存，需要把对应节点从 nodes_storage 中擦除
+    for(auto it = nodes_storage.begin(); it != nodes_storage.end(); ++it) {
+        if(it->get() == target) {
+            nodes_storage.erase(it);
+            break;
+        }
+    }
+    return true;
 }

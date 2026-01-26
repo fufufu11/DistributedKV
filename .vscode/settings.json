@@ -56,5 +56,8 @@
   "C_Cpp_Runner.showCompilationTime": false,
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
-  "cmake.sourceDirectory": "D:/CODE/kamaCoder/DistributedKV"
+  "cmake.sourceDirectory": "D:/CODE/DistributedKV",
+  "cmake.cmakePath": "C:/Program Files/Microsoft Visual Studio/2022/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+  "cmake.defaultGenerator": "Visual Studio 17 2022",
+  "cmake.useCMakePresets": "always"
 }

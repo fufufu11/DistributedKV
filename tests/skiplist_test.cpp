@@ -2,7 +2,7 @@
 #include "skiplist.h"
 
 #include <algorithm>
-#include <random>
+#include <random> 
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -26,7 +26,7 @@
  *
  * 这是最基础的冒烟用例，能快速发现 search 在空表边界上的空指针/层级处理问题。
  */
-TEST(SkipListTest, InitialStateSearchMiss) {
+TEST(SkipListTest, InitialStateSearchMiss) { 
     SkipList<int, std::string> kv(16);
     EXPECT_FALSE(kv.search(123).has_value());
 }

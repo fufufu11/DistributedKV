@@ -1,20 +1,31 @@
-# C++ 编译生成的二进制文件
-*.exe
-*.o
-*.obj
-*.out
-
-# VS Code 配置与临时文件
-.vscode/ipch/
-.vscode/msvc.json
-.vscode/*.log
-
-# 操作系统临时文件
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# 构建目录
+# Build directories
 build/
 bin/
-obj/
+out/
+
+# Build metadata
+compile_commands.json
+compile_commands/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Trae internal documents
+.trae/documents/
+.cache/
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.a
+*.lib
+*.so
+*.dll
+
+# OS files
+.DS_Store
+Thumbs.db
