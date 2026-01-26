@@ -3,5 +3,7 @@ CompileFlags:
     - "-xc++"
     - "-std=c++20"
     - "-ID:/CODE/DistributedKV/include"
+    - "-ID:/CODE/DistributedKV/build/_deps/googletest-src/googletest/include"
+    - "-ID:/CODE/DistributedKV/build/_deps/googletest-src/googlemock/include"
     - "-Wno-unknown-pragmas"
     - "--driver-mode=cl"
