@@ -1,5 +1,14 @@
-﻿$BuildDir = "build"
+$BuildDir = "build"
 $CmakePath = "cmake"
+
+# --- Add MinGW to PATH if exists ---
+$MinGWPath = "C:\msys64\mingw64\bin"
+if (Test-Path $MinGWPath) {
+    if ($env:PATH -notlike "*$MinGWPath*") {
+        $env:PATH = "$MinGWPath;$env:PATH"
+        Write-Host "Added MinGW to PATH: $MinGWPath" -ForegroundColor Cyan
+    }
+}
 
 # --- Find CMake ---
 if (!(Get-Command $CmakePath -ErrorAction SilentlyContinue)) {

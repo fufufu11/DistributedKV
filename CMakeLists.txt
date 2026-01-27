@@ -8,6 +8,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # --- 编译选项优化 ---
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
 if(MSVC)
     add_compile_options(/W4 /Zc:__cplusplus /utf-8)
 else()
@@ -35,6 +39,10 @@ target_include_directories(DistributedKV_lib INTERFACE ${PROJECT_SOURCE_DIR}/inc
 # --- 可执行程序 ---
 add_executable(DistributedKV_bin src/main.cpp)
 target_link_libraries(DistributedKV_bin PRIVATE DistributedKV_lib)
+
+# --- 示例 / 基准测试 ---
+add_executable(benchmark_skiplist examples/benchmark_skiplist.cpp)
+target_link_libraries(benchmark_skiplist PRIVATE DistributedKV_lib)
 
 # --- 单元测试 ---
 add_executable(skiplist_test tests/skiplist_test.cpp)

@@ -2,15 +2,18 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "windows-msvc-vs2022",
-      "displayName": "Windows (Visual Studio 2022)",
-      "description": "Target Windows with Visual Studio 2022 compiler",
-      "generator": "Visual Studio 17 2022",
+      "name": "ninja-gcc",
+      "displayName": "Windows (G++ with Ninja)",
+      "description": "Target Windows with G++ compiler and Ninja generator",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_CXX_STANDARD": "20",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TLS_VERIFY": "OFF"
+      },
+      "environment": {
+        "PATH": "C:/msys64/mingw64/bin;$penv{PATH}"
       }
     }
   ]

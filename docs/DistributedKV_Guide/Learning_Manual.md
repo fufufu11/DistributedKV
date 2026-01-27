@@ -684,10 +684,17 @@ ctest --test-dir build --output-on-failure
     *   **工具（可选）**：若工具链支持，可开启 AddressSanitizer (`-fsanitize=address`) 运行测试，辅助检查内存问题。
     *   **当前进度**：insert/search/remove 用例已补齐并通过（`ctest`：14/14 tests passed）。
 
-*   **任务五：简单性能基准测试 (Benchmark)**
+*   **任务五：简单性能基准测试 (Benchmark)（已完成）**
     *   **实战**：编写 `examples/benchmark_skiplist.cpp`。
     *   **比较**：对比 `SkipList` 与 `std::map` (红黑树) 在 10 万级数据下的插入与读取耗时。
     *   **预期**：跳表性能应与红黑树在同一数量级（$O(\log n)$）。
+    *   **结果**（Windows + MinGW g++ 15.2.0，`-O2`，`n=100000`，`reads=100000`，`seed=12345`，`max_level=16`，`p=0.5`）：
+
+        *   SkipList insert: 37.5161 ms；read: 28.0013 ms（checksum: 4999950000）
+        *   std::map insert: 16.5477 ms；read: 11.9317 ms（checksum: 4999950000）
+    *   **结论**：符合“同一数量级（10^6 ops/s）”的预期，但当前实现下 `SkipList` 明显慢于 `std::map`（约 2x）。
+    *   **可能原因**：跳表实现包含多层 `forward` 指针追踪、节点层数随机化与额外存储管理开销；同时本基准未控制 allocator/缓存等因素，数值更适合做相对对比而非绝对宣称。
+    *   **建议**：后续想更客观可重复，可增加多轮重复取中位数、区分“顺序/随机读写”、以及在不同 `p/max_level` 下扫参数观察趋势。
 
 **第 3 周：WAL 预写日志**
 - 学习内容：顺序写、崩溃恢复基本概念

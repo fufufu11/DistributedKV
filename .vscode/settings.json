@@ -56,8 +56,25 @@
   "C_Cpp_Runner.showCompilationTime": false,
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
-  "cmake.sourceDirectory": "D:/CODE/DistributedKV",
-  "cmake.cmakePath": "C:/Program Files/Microsoft Visual Studio/2022/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
-  "cmake.defaultGenerator": "Visual Studio 17 2022",
-  "cmake.useCMakePresets": "always"
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "cmake.cmakePath": "cmake",
+  "cmake.generator": "Ninja",
+  "cmake.configureArgs": [
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+  ],
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.preset": "ninja-gcc",
+  "cmake.buildBeforeRun": true,
+  "cmake.debugConfig": {
+    "name": "DistributedKV: Run Main"
+  },
+  "terminal.integrated.env.windows": {
+    "PATH": "C:/msys64/mingw64/bin;${env:PATH}"
+  },
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}",
+    "--query-driver=C:/msys64/mingw64/bin/g++*",
+    "--header-insertion=never"
+  ],
+  "C_Cpp.intelliSenseEngine": "disabled"
 }

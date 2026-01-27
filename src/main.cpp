@@ -3,7 +3,7 @@
 #include "skiplist.h"
 
 int main(){
-    std::cout << "=== DistributedKV SkipList Demo ===" << std::endl;   
+    std::cout << "=== DistributedKV SkipList Demo ===" << std::endl;    
 
     // 1. 初始化跳表，最大层数为 6
     SkipList<int, std::string> kv_store(6);
