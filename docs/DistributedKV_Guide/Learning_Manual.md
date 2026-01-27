@@ -26,10 +26,12 @@
     - [5.4 现代 C++：std::optional 与 std::nullopt](#54-现代-cstdoptional-与-stdnullopt)
     - [5.5 C++17：结构化绑定（Structured Bindings）](#55-c17结构化绑定structured-bindings)
 - [6. 构建系统与 CMake](#6-构建系统与-cmake)
-    - [6.1 CMake 是什么？](#61-cmake-是什么)
-    - [6.2 本项目的构建现状](#62-本项目的构建现状)
-    - [6.3 是否有比 CMake 更高级的？](#63-是否有比-cmake-更高级的)
-    - [6.4 该用哪种构建系统？](#64-该用哪种构建系统)
+    - [6.1 为什么选择 CMake + G++？](#61-为什么选择-cmake--g)
+    - [6.2 本项目的构建工具链](#62-本项目的构建工具链)
+    - [6.3 如何搭建开发环境 (Windows)](#63-如何搭建开发环境-windows)
+    - [6.4 使用 build.ps1 构建](#64-使用-buildps1-构建)
+    - [6.5 运行与验证](#65-运行与验证)
+    - [6.6 VS Code 快捷键与集成](#66-vs-code-快捷键与集成)
 - [7. 编码规范与文档化](#7-编码规范与文档化)
 - [8. 学习路径建议](#8-学习路径建议)
 - [9. 关键术语表](#9-关键术语表)
@@ -275,7 +277,7 @@ Level 0: ... 7 (update[0]) -> 8 (target) -> 9 -> ...
 - `prob = 0.0f`：`random_level()` 恒为 1，跳表退化为单层有序链表，便于验证最基础的插入与查询
 - `prob = 1.0f`：节点层数恒增长到 `max_level`，用于覆盖扩层与多层 `forward` 指针维护路径
 
-#### 3.5.1 当前已实现用例覆盖点（7 个）
+#### 3.5.1 当前已实现用例覆盖点（14 个）
 
 - 空表查找应未命中
 - 单条插入后应命中；未插入 key 仍未命中
@@ -284,22 +286,30 @@ Level 0: ... 7 (update[0]) -> 8 (target) -> 9 -> ...
 - 乱序插入后逐个查询应全部命中且值正确
 - 强制全升层（`prob=1.0f`）下，插入与查询应正确
 - `std::string` 作为 key 的模板实例化与比较路径可用
+- 空表删除：`remove` 返回 false
+- 删除不存在的 key：`remove` 返回 false，且表结构不应被破坏（已存在 key 仍可查）
+- 插入→删除→查找：被删 key 查不到；未删 key 仍可查
+- 删除后再插入同 key：应能重新插入并查到新 value
+- 删除边界 key（最小/最大）：结构仍正确，未删 key 仍可查
+- 随机删除一半：已删查不到、未删查得到
+- （多层断链）`prob=1.0f` 下删除若干 key：已删不可查、未删可查
 
-#### 3.5.2 remove 建议覆盖点（待实现）
+#### 3.5.2 remove 覆盖点（已实现）
 
-为了补齐删除逻辑的正确性，建议至少覆盖以下路径（优先固定 `prob=0.0f` 让结构退化为单层，便于稳定复现）：
+为了补齐删除逻辑的正确性，本项目已覆盖以下路径（优先固定 `prob=0.0f` 让结构退化为单层，便于稳定复现）：
 
+- 空表删除：`remove` 返回 false
 - 删除不存在的 key：`remove` 返回 false，且表结构不应被破坏（已存在 key 仍可查）。
 - 插入→删除→查找：被删 key 查不到；未删 key 仍可查。
 - 删除后再插入同 key：应能重新插入并查到新 value。
+- 删除边界 key（最小/最大）：结构仍正确。
 - 随机删除一半：插入 `[0,n)`，打乱后删除前半；验证已删查不到、未删查得到。
-- （可选增强）使用 `prob=1.0f` 覆盖多层断链路径，验证多层 forward 的一致性。
+- 使用 `prob=1.0f` 覆盖多层断链路径，验证多层 forward 的一致性。
 
 #### 3.5.3 验收结果记录
 
 - 运行方式：构建后执行 `ctest --output-on-failure`
-- 最近一次结果：7/7 tests passed（insert/search 相关测试全部通过）
-- remove 增补后结果：（待你实现 remove 与新增测试后填写）
+- 最近一次结果：14/14 tests passed（包含 remove 相关用例）
 
 
 ---
@@ -490,42 +500,73 @@ for (auto& [k, v] : mp) {
 
 ## 6. 构建系统与 CMake
 
-### 6.1 CMake 是什么？
-CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt` 来生成不同平台的构建文件（如 Ninja、Unix Makefiles、Visual Studio 工程）。核心思想是用“目标”来表达库和可执行文件，以及它们之间的依赖、编译选项和链接关系。
+### 6.1 为什么选择 CMake + G++？
+本项目采用 **CMake** 作为构建系统，并推荐使用 **G++ (GCC)** 作为编译器。
+- **跨平台一致性**：G++ 是 Linux 环境下的标准编译器。在 Windows 上使用 G++ (MinGW-w64) 可以最大限度地模拟 Linux 的编译行为，减少因编译器差异导致的代码移植问题。
+- **构建标准化**：CMake 是 C++ 界的通用标准，能够自动处理依赖管理、编译选项配置和跨平台构建脚本生成。
 
-### 6.2 本项目的构建现状
-本项目使用 CMake 作为构建系统，并通过 CTest 运行测试用例：
-- 根目录存在 `CMakeLists.txt`，会构建跳表测试可执行文件（如 `skiplist_test`）
-- 测试框架使用 GoogleTest（GTest），并通过 CMake 的 `gtest_discover_tests` 自动注册到 CTest
-### 6.2 本项目的构建现状
-仓库根目录提供了 `build.ps1` (PowerShell) 脚本，旨在简化 Windows 环境下的构建流程。
+### 6.2 本项目的构建工具链
+为了方便在 Windows 上进行类 Linux 开发，本项目配置了以下工具链：
+- **编译器**：G++ (MinGW-w64 GCC 15.2.0+)
+- **构建生成器**：Ninja (推荐) 或 MinGW Makefiles
+- **构建脚本**：`build.ps1` (Windows PowerShell)
 
-**脚本功能：**
-1. **自动检测 CMake**：会在常见路径（如 Visual Studio 组件目录、默认安装目录）下查找 `cmake.exe`。
-2. **智能选择生成器**：
-   - 优先检测 `Ninja` (最快)。
-   - 其次检测 `MinGW Makefiles` (如果安装了 MinGW 且有 `mingw32-make` 或 `make`)。
-   - 最后回退到默认生成器 (通常是 Visual Studio MSBuild)。
-3. **依赖管理**：自动配置 `googletest`，并设置了 `-DCMAKE_TLS_VERIFY=OFF` 以解决部分网络环境下的 SSL 证书问题。
-4. **一键测试**：构建完成后自动运行 `ctest`，输出测试结果。
+该脚本会自动检测系统中的 `ninja` 和 `g++`，优先构建 MinGW 环境。
 
-**使用方法：**
+### 6.3 如何搭建开发环境 (Windows)
+为了获得最佳体验，建议安装 **MSYS2** 或直接下载 **MinGW-w64**。
+
+**推荐方案 (MSYS2)**：
+1. 下载并安装 [MSYS2](https://www.msys2.org/)。
+2. 打开 MSYS2 UCRT64 或 MINGW64 终端，执行以下命令安装工具链：
+   ```bash
+   pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+   ```
+3. 将 `C:\msys64\mingw64\bin` (默认路径) 添加到系统环境变量 PATH 中。
+
+### 6.4 使用 build.ps1 构建
+在项目根目录下运行：
 ```powershell
-# 默认构建
 .\build.ps1
+```
+脚本会自动寻找 G++ 和 Ninja/Make 进行编译。
 
-# 清理并重新构建
+**构建产物路径**：
+- **可执行文件**：`build/bin/` (例如 `build/bin/DistributedKV_bin.exe`)
+- **静态库/存档**：`build/lib/`
+
+若需清理并重新构建：
+```powershell
 .\build.ps1 --clean
 ```
 
-### 6.3 是否有比 CMake 更高级的？
-从行业现状看，CMake 仍是 C++ 领域最主流的构建系统之一，尤其在跨平台库、系统级软件和开源项目中依然占主导。与此同时，Bazel、Meson、XMake 等更现代的方案在部分团队中增长，但并没有形成对 CMake 的全面替代，它们只是不同的工程取舍。
+### 6.5 运行与验证
+构建完成后，你可以通过以下命令运行程序：
 
-### 6.4 该用哪种构建系统？
-建议优先选择 CMake 作为本项目的构建系统。理由是生态成熟、工具链支持广、与主流 IDE 和 CI 集成简单，且学习资料丰富。等项目规模显著扩大、需要更强的缓存与大规模构建能力时，再评估 Bazel 或其他方案会更稳妥。
+**1. 运行 Demo 主程序**：
+```powershell
+.\build\bin\DistributedKV_bin.exe
+```
+
+**2. 运行单元测试 (通过 CTest)**：
+```powershell
+ctest --test-dir build --output-on-failure
+```
+
+**3. 直接运行测试程序**：
+```powershell
+.\build\bin\skiplist_test.exe
+```
+
+### 6.6 VS Code 快捷键与集成
+项目已针对 VS Code 深度优化，推荐使用以下快捷方式：
+
+- **一键运行/调试**：按下 `F5`（会自动触发编译并运行主程序）。
+- **运行单元测试**：在左侧“测试”面板点击运行，或在调试面板选择 `DistributedKV: Run SkipList Test`。
+- **清理并重新配置**：`Ctrl+Shift+P` -> 输入 `CMake: Delete Cache and Reconfigure`。
 
 ---
- 
+
 ## 7. 编码规范与文档化
  
  ### 7.1 Doxygen 注释规范
@@ -577,7 +618,7 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
 
 *   **任务一：理论预热与环境准备（已完成）**
     *   **复习**：回顾本文第 2 章与第 3 章，深入理解 LSM-Tree 的顺序写优势及跳表的选型理由。
-    *   **实战**：检查 C++ 编译器（GCC/Clang）与 CMake 环境。
+    *   **实战**：检查 C++ 编译器（推荐 MinGW-w64 G++）与 CMake 环境，确保与 Linux 开发体验一致。
  
  *   **任务二：项目工程化搭建（已完成）**
     *   **实战**：创建项目目录结构：
@@ -585,7 +626,7 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
          *   `include/`：头文件
          *   `tests/`：测试代码
          *   `docs/`：文档
-    *   **实战**：编写根目录 `CMakeLists.txt`，配置基础编译选项（建议开启 `-std=c++17` 或更高，以及 `-Wall -g`）。
+    *   **实战**：编写根目录 `CMakeLists.txt`，配置基础编译选项（建议开启 `-std=c++20`，以及 `-Wall -g`）。
  
  *   **任务三：跳表核心数据结构设计（已完成）**
     *   **代码**：定义 `SkipList` 模板类（支持泛型 Key 和 Value）。
@@ -607,7 +648,7 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
     *   **代码**：编写一个简单的 `main.cpp`，实例化 `SkipList` 对象并调用上述空接口，确保编译通过。
 
 *   **任务六：单元测试框架接入 (已完成)**
-    *   **实战**：引入 Google Test (GTest) 库（推荐通过 CMake FetchContent 自动下载，或手动配置）。
+    *   **实战**：引入 Google Test (GTest) 库（推荐通过 CMake FetchContent 自动下载，并配置 `ghproxy.net` 镜像加速）。
     *   **实战**：编写第一个“冒烟测试”：创建一个跳表对象，断言其初始化状态（如当前层级为 0，头节点存在等）。
     *   **验收**：运行 `ctest` 或执行测试二进制文件，看到绿色的 `PASSED`。
 
@@ -627,7 +668,7 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
     *   **代码**：实现 `search(key)`。
     *   **逻辑**：从最高层出发，向右移动直到下一个节点大于 Key，然后下沉一层。最终在第 0 层判断下一个节点是否等于目标 Key。
 
-*   **任务三：实现删除逻辑 (Remove)**
+*   **任务三：实现删除逻辑 (Remove)（已完成）**
     *   **代码**：实现 `remove(key)`。
     *   **逻辑**：
         *   利用 `update` 数组找到目标 Key 的所有前驱节点。
@@ -635,13 +676,13 @@ CMake 是一套跨平台的构建配置系统，它通过读取 `CMakeLists.txt`
         *   **注意**：删除后需检查是否需要降低跳表的 `current_max_level`（如果最高层只剩头节点）。
     *   **策略**：本周先以物理删除完成数据结构验收；当第 4–6 周引入 SSTable/Compaction 后，删除语义切换为 Tombstone 与 LSM 对齐。
 
-*   **任务四：大规模随机性测试 (Stability Test)（部分完成）**
+*   **任务四：大规模随机性测试 (Stability Test)（已完成）**
     *   **实战**：编写 `tests/skiplist_test.cpp`。
     *   **测试用例 1**：顺序插入 0-10000，验证查询成功。
     *   **测试用例 2**：随机插入 10000 个乱序整数，验证查询成功。
     *   **测试用例 3**：随机删除 5000 个元素，验证剩余元素可查，已删元素查不到。
-    *   **工具**：开启 AddressSanitizer (`-fsanitize=address`) 运行测试，确保无内存泄漏。
-    *   **当前进度**：insert/search 的用例已补齐并通过；remove 相关用例待补。
+    *   **工具（可选）**：若工具链支持，可开启 AddressSanitizer (`-fsanitize=address`) 运行测试，辅助检查内存问题。
+    *   **当前进度**：insert/search/remove 用例已补齐并通过（`ctest`：14/14 tests passed）。
 
 *   **任务五：简单性能基准测试 (Benchmark)**
     *   **实战**：编写 `examples/benchmark_skiplist.cpp`。

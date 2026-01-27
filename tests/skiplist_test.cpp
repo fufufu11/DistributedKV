@@ -173,3 +173,126 @@ TEST(SkipListTest, StringKeyWorks) {
     EXPECT_EQ(b.value(), 2);
     EXPECT_EQ(c.value(), 3);
 }
+
+TEST(SkipListTest, RemoveFromEmptyReturnsFalse) {
+    SkipList<int, int> kv(8, 0.0f);
+    EXPECT_FALSE(kv.remove(1));
+    EXPECT_FALSE(kv.search(1).has_value());
+}
+
+TEST(SkipListTest, RemoveMissingKeyDoesNotCorrupt) {
+    SkipList<int, std::string> kv(16, 0.0f);
+    EXPECT_TRUE(kv.insert(1, "a"));
+    EXPECT_TRUE(kv.insert(3, "c"));
+    EXPECT_TRUE(kv.insert(2, "b"));
+
+    EXPECT_FALSE(kv.remove(4));
+
+    auto v1 = kv.search(1);
+    auto v2 = kv.search(2);
+    auto v3 = kv.search(3);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v2.has_value());
+    ASSERT_TRUE(v3.has_value());
+    EXPECT_EQ(v1.value(), "a");
+    EXPECT_EQ(v2.value(), "b");
+    EXPECT_EQ(v3.value(), "c");
+}
+
+TEST(SkipListTest, InsertRemoveSearchBasic) {
+    SkipList<int, int> kv(16, 0.0f);
+    for (int i = 1; i <= 10; ++i) {
+        EXPECT_TRUE(kv.insert(i, i * 10));
+    }
+
+    EXPECT_TRUE(kv.remove(3));
+    EXPECT_FALSE(kv.search(3).has_value());
+
+    auto v4 = kv.search(4);
+    ASSERT_TRUE(v4.has_value());
+    EXPECT_EQ(v4.value(), 40);
+
+    EXPECT_FALSE(kv.remove(3));
+}
+
+TEST(SkipListTest, RemoveThenReinsertSameKey) {
+    SkipList<int, std::string> kv(16, 0.0f);
+    EXPECT_TRUE(kv.insert(7, "a"));
+    EXPECT_TRUE(kv.remove(7));
+    EXPECT_FALSE(kv.search(7).has_value());
+    EXPECT_TRUE(kv.insert(7, "b"));
+
+    auto v = kv.search(7);
+    ASSERT_TRUE(v.has_value());
+    EXPECT_EQ(v.value(), "b");
+}
+
+TEST(SkipListTest, RemoveMinAndMaxKeys) {
+    SkipList<int, int> kv(8, 0.0f);
+    EXPECT_TRUE(kv.insert(1, 10));
+    EXPECT_TRUE(kv.insert(2, 20));
+    EXPECT_TRUE(kv.insert(3, 30));
+
+    EXPECT_TRUE(kv.remove(1));
+    EXPECT_TRUE(kv.remove(3));
+    EXPECT_FALSE(kv.search(1).has_value());
+    EXPECT_FALSE(kv.search(3).has_value());
+
+    auto v2 = kv.search(2);
+    ASSERT_TRUE(v2.has_value());
+    EXPECT_EQ(v2.value(), 20);
+
+    EXPECT_FALSE(kv.remove(1));
+    EXPECT_FALSE(kv.remove(3));
+}
+
+TEST(SkipListTest, RandomRemoveHalf_Level1) {
+    SkipList<int, int> kv(16, 0.0f);
+    const int n = 2000;
+    for (int i = 0; i < n; ++i) {
+        EXPECT_TRUE(kv.insert(i, i * 2));
+    }
+
+    std::vector<int> keys;
+    keys.reserve(n);
+    for (int i = 0; i < n; ++i) keys.push_back(i);
+
+    std::mt19937 rng(12345);
+    std::shuffle(keys.begin(), keys.end(), rng);
+
+    const int remove_count = n / 2;
+    for (int i = 0; i < remove_count; ++i) {
+        EXPECT_TRUE(kv.remove(keys[i]));
+    }
+
+    for (int i = 0; i < remove_count; ++i) {
+        EXPECT_FALSE(kv.search(keys[i]).has_value());
+        EXPECT_FALSE(kv.remove(keys[i]));
+    }
+    for (int i = remove_count; i < n; ++i) {
+        auto v = kv.search(keys[i]);
+        ASSERT_TRUE(v.has_value());
+        EXPECT_EQ(v.value(), keys[i] * 2);
+    }
+}
+
+TEST(SkipListTest, RemoveWorksWhenAllNodesMaxLevel) {
+    SkipList<int, int> kv(8, 1.0f);
+    for (int i = 1; i <= 200; ++i) {
+        EXPECT_TRUE(kv.insert(i, i * 10));
+    }
+
+    for (int i = 1; i <= 200; i += 2) {
+        EXPECT_TRUE(kv.remove(i));
+    }
+
+    for (int i = 1; i <= 200; ++i) {
+        auto v = kv.search(i);
+        if (i % 2 == 1) {
+            EXPECT_FALSE(v.has_value());
+        } else {
+            ASSERT_TRUE(v.has_value());
+            EXPECT_EQ(v.value(), i * 10);
+        }
+    }
+}
