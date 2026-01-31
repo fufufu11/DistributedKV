@@ -48,9 +48,13 @@ target_link_libraries(benchmark_skiplist PRIVATE DistributedKV_lib)
 add_executable(skiplist_test tests/skiplist_test.cpp)
 target_link_libraries(skiplist_test PRIVATE DistributedKV_lib GTest::gtest_main)
 
+add_executable(kv_store_test tests/kv_store_test.cpp)
+target_link_libraries(kv_store_test PRIVATE DistributedKV_lib GTest::gtest_main)
+
 # 让 ctest 能够识别到此测试
 include(GoogleTest)
 gtest_discover_tests(skiplist_test)
+gtest_discover_tests(kv_store_test)
 
 # --- 打印状态 ---
 message(STATUS "--------------------------------------------")
