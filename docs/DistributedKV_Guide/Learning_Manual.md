@@ -38,6 +38,8 @@
     - [6.3 C++17：结构化绑定（Structured Bindings）](#63-c17结构化绑定structured-bindings)
     - [6.4 C++ 关键字：explicit](#64-c-关键字explicit)
     - [6.5 C++17：std::filesystem::path 的 operator/](#65-c17stdfilesystempath-的-operator)
+    - [6.6 C++ 关键字：inline（头文件与链接）](#66-c-关键字inline头文件与链接)
+    - [6.7 C++ 类型转换：static_cast](#67-c-类型转换static_cast)
 - [7. 构建系统与 CMake](#7-构建系统与-cmake)
     - [7.1 为什么选择 CMake + G++？](#71-为什么选择-cmake--g)
     - [7.2 本项目的构建工具链](#72-本项目的构建工具链)
@@ -54,13 +56,7 @@
     - [11.3 阶段 C：网络层与集成（第 13–16 周）](#113-阶段-c网络层与集成第-1316-周)
     - [11.4 阶段 D：工程化与展示（第 17–20 周）](#114-阶段-d工程化与展示第-1720-周)
     - [11.5 每周投入建议](#115-每周投入建议)
-- [12. 测试与验证（GTest/CTest）](#12-测试与验证gtestctest)
-    - [12.1 单元测试解决什么问题](#121-单元测试解决什么问题)
-    - [12.2 本项目的测试入口](#122-本项目的测试入口)
-    - [12.3 ASSERT 与 EXPECT 如何选择](#123-assert-与-expect-如何选择)
-    - [12.4 常用断言速查](#124-常用断言速查)
-    - [12.5 写测试的 AAA 套路](#125-写测试的-aaa-套路)
-    - [12.6 让测试可复现](#126-让测试可复现)
+- [12. 测试与验证（详见独立文档）](#12-测试与验证详见独立文档)
 
 ---
 
@@ -785,6 +781,118 @@ int main() {
 
 ---
 
+### 6.6 C++ 关键字：inline（头文件与链接）
+
+很多初学者认为 `inline` 只是为了“性能”，其实在现代 C++ 工程中，它更重要的作用是**解决头文件链接问题**。
+
+#### 6.6.1 什么是“内联展开” (Inline Expansion)？
+“内联展开”是编译器的一种优化手段：**把函数调用直接替换为函数体本身**，从而省去函数调用的开销（压栈、跳转、返回）。
+
+**图解对比：**
+
+假设有这样一个函数：
+```cpp
+int add(int a, int b) { return a + b; }
+```
+
+- **普通调用 (No Inline)**：
+  ```cpp
+  int x = add(1, 2);
+  // 机器码逻辑：
+  // 1. 把 1, 2 压入寄存器/栈
+  // 2. CALL add 地址
+  // 3. (跳转到 add) 执行加法，把结果放回返回值寄存器
+  // 4. RET 返回
+  ```
+- **内联展开 (Inlined)**：
+  ```cpp
+  int x = add(1, 2);
+  // 机器码逻辑：
+  // 直接生成加法指令，没有 CALL/RET
+  // int x = 1 + 2; 
+  ```
+
+**注意：** `inline` 关键字只是给编译器的**建议**。
+- 如果函数太复杂（有循环、递归），编译器会无视 `inline`，依然生成 CALL。
+- 即使没写 `inline`，只要开启 `-O2`，编译器也会自动把小函数内联。
+
+#### 6.6.2 为什么头文件里的函数要加 inline？
+这是 `inline` 在工程中更关键的用途：**One Definition Rule (ODR) 的豁免权**。
+
+**问题场景：**
+假设你在 `utils.h` 里写了一个函数**定义**（不仅是声明）：
+```cpp
+// utils.h
+int max_val(int a, int b) { return a > b ? a : b; }
+```
+如果 `A.cpp` 和 `B.cpp` 都 `#include "utils.h"`：
+1. `A.cpp` 编译生成 `A.o`，里面有一个 `max_val` 的符号。
+2. `B.cpp` 编译生成 `B.o`，里面也有一个 `max_val` 的符号。
+3. **链接阶段 (Linker)**：链接器发现两个 `.o` 里都有 `max_val`，就会报 **"multiple definition" (重定义错误)**。
+
+**解决方案：**
+加上 `inline`：
+```cpp
+// utils.h
+inline int max_val(int a, int b) { return a > b ? a : b; }
+```
+- 含义变了：告诉链接器，“这个函数可能在多个单元里被定义多次，但它们都是同一个东西，请忽略重复，最终只保留一份（或都内联掉）”。
+- **结论**：**只要你在头文件 (.h) 里写函数体，就必须加 `inline`**（类内定义的成员函数默认隐含 inline，所以不用显式写）。
+
+#### 6.6.3 总结
+- **性能视角**：`inline` 只是建议，能不能展开看编译器心情。
+- **链接视角**：`inline` 是头文件写函数实现的**必须通行证**，防止重定义报错。
+- **本项目应用**：`wal_record.h` 中的 `crc32` 是在头文件直接实现的工具函数，所以必须加 `inline`。
+
+---
+
+### 6.7 C++ 类型转换：static_cast
+
+C++ 提供了四种显式类型转换操作符（`static_cast`, `dynamic_cast`, `const_cast`, `reinterpret_cast`），其中 `static_cast` 是使用最频繁、最推荐的“常规武器”。
+
+#### 6.7.1 什么是 static_cast？
+它是 C++ 用于进行**编译时检查**的显式类型转换。
+- **适用场景**：编译器认为“合理”的转换（如 `int` 转 `float`，`void*` 转具体指针，子类转父类）。
+- **不适用场景**：完全无关的类型转换（如 `int*` 转 `float*`，这需要 `reinterpret_cast`）。
+
+#### 6.7.2 为什么要取代 C 风格转换？
+你可能习惯写 C 风格的 `(type)value`，例如 `(int)3.14`。但在 C++ 中，我们强烈建议改用 `static_cast<int>(3.14)`，理由如下：
+
+1.  **安全性（Safety）**：
+    - C 风格转换太暴力，它会尝试各种手段（包括 `reinterpret_cast` 的能力）强行转换，容易把无关的指针乱转，导致运行时崩溃。
+    - `static_cast` 会在编译期检查类型兼容性，如果不合理直接报错。
+2.  **可搜索性（Searchability）**：
+    - 在几万行代码里找“哪里把 float 转成了 int”？搜索 `(` 是不可能的。
+    - 搜索 `static_cast` 可以瞬间定位所有显式转换，便于代码审计。
+
+#### 6.7.3 实战场景：防止符号扩展 bug
+在 `wal_record.h` 的 CRC 计算中，我们用到了：
+```cpp
+uint8_t byte = static_cast<uint8_t>(data[i]);
+```
+**为什么要转？**
+- `data` 是 `const char*`。在很多平台上，`char` 是**有符号的 (signed)**，范围是 -128 到 127。
+- 假设 `data[i]` 的二进制是 `11111111`（即 -1）。
+
+**图解对比：符号扩展的破坏力**
+假设当前 `crc` 为 `0x00000000`（即使初始值为 0，也无法幸免），我们需要异或这个 `0xFF` 字节。
+
+1.  **正确情况 (static_cast<uint8_t>)**：
+    - `0xFF` 被视为 `255` (int: `0x000000FF`)。
+    - `crc ^ byte` = `0x00...00` ^ `0x00...FF` = `0x000000FF`。
+    - **结果**：只有低 8 位变了，高 24 位保持纯净。**这是 CRC 想要的。**
+
+2.  **错误情况 (直接用 signed char)**：
+    - `0xFF` 被视为 `-1`。
+    - 提升为 int 时发生**符号位扩展**，变成 `0xFFFFFFFF`（高 24 位全被填满 1）。
+    - `crc ^ byte` = `0x00...00` ^ `0xFF...FF` = `0xFFFFFFFF`。
+    - **结果**：**本来只该影响低 8 位的，结果把高 24 位全部反转了！** 
+    - **注意**：无论 `crc` 原本是多少（0 或 0xFFFFFFFF），异或 `0xFFFFFFFF` 都会导致高 24 位被错误反转，彻底破坏后续计算。
+
+因此，使用 `static_cast<uint8_t>` 把它强制转换为**无符号字节**（0-255），是处理二进制数据时的标准动作。
+
+---
+
 ## 7. 构建系统与 CMake
 
 ### 7.1 为什么选择 CMake + G++？
@@ -994,9 +1102,9 @@ ctest --test-dir build --output-on-failure
 
 > **必读前置知识**：在开始代码之前，请务必阅读 **[4. 持久化机制：WAL 预写日志](#4-持久化机制wal-预写日志)**，理解 WAL 的核心定义与时序要求。
 
-*   **WAL 记录格式（建议）**
+*   **WAL 记录格式**
     *   **记录类型**：`Put` / `Del`（删除先作为 Tombstone 记录写 WAL，后续与 SSTable/Compaction 对齐）。
-    *   **字段建议**：`magic/version`、`record_type`、`sequence`、`key_len`、`value_len`、`checksum`、payload（key/value）。
+    *   **字段建议**：`checksum`、`key_len`、`value_len`、`type`、payload（key/value）。
     *   **容错策略（本周明确）**：
         *   读取遇到“尾部不完整记录”直接停止重放（认为是崩溃导致的半写）。
         *   checksum 不匹配时停止并报错（后续可扩展为跳过/隔离损坏段）。
@@ -1006,10 +1114,11 @@ ctest --test-dir build --output-on-failure
     *   **数据目录**：确定存储目录结构（至少包含 `wal.log`），并约定启动时从该目录恢复。
     *   **验收**：已通过 `KVStoreTest.CreatesDataDirectory` 与 `DetectsExistingWAL` 测试。
 
-*   **任务二：记录编解码与校验**
+*   **任务二：记录编解码与校验 (已完成)**
     *   **编码**：实现定长/变长编码方案（可选其一，但需在文档中写清楚），保证跨平台一致性（建议小端）。
     *   **校验**：实现 checksum（可从 CRC32 起步），覆盖记录头（不含 checksum 字段）与 payload。
     *   **测试**：对“编码->解码”与“校验失败”分别写单元测试。
+    *   **当前进度**：已补充 `encode_log_record` 文档注释并修正 checksum 写入位置（写入记录头部 4B 预留区，避免越界）。
 
 *   **任务三：WAL 写入（Writer）**
     *   **追加写**：只允许 append，禁止中间修改；每条记录写入后执行 `Flush/Sync`（本周先不用 group commit）。
@@ -1038,10 +1147,11 @@ ctest --test-dir build --output-on-failure
     *   checksum 损坏可被检测到，并有明确的失败表现（错误码/异常/日志三选一，但需一致）。
 
 *   **测试结果记录**
-    *   [ ] `YYYY-MM-DD`：WAL 编解码单测（通过/失败，失败原因：）
-    *   [ ] `YYYY-MM-DD`：WAL 重放恢复用例 1/2（通过/失败，失败原因：）
-    *   [ ] `YYYY-MM-DD`：尾部截断用例 3（通过/失败，失败原因：）
-    *   [ ] `YYYY-MM-DD`：checksum 损坏用例 4（通过/失败，失败原因：）
+    *   详细测试记录与方法论请参阅：[Test_Record.md](./Test_Record.md)
+    *   [x] WAL 编解码单测 (Task 2)
+    *   [ ] WAL 重放恢复 (Task 4)
+    *   [ ] 尾部截断容错 (Task 6)
+    *   [ ] Checksum 损坏检测 (Task 6)
 
 **第 4 周：SSTable 文件格式**
 - 学习内容：有序文件结构、索引与数据块布局
@@ -1140,79 +1250,13 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 12. 测试与验证（GTest/CTest）
+## 12. 测试与验证（详见独立文档）
 
-### 12.1 单元测试解决什么问题
+本项目的完整测试指南、测试用例清单及历史验收记录已迁移至独立文档：
 
-单元测试（Unit Test）关注“一个很小的单元（函数/类/模块）在给定输入下是否输出符合预期”。它主要解决三类工程问题：
-- **回归**：今天修好/写好的功能，明天改代码不会悄悄坏掉
-- **定位**：出现 bug 时能快速把问题范围缩到某个模块或某条路径
-- **重构保障**：你可以放心整理代码结构，只要测试还是绿的，就说明行为没变
+👉 **[DistributedKV 测试记录文档 (Test_Record.md)](./Test_Record.md)**
 
-### 12.2 本项目的测试入口
- 
- 本项目的测试文件：
- - `tests/skiplist_test.cpp`：跳表核心逻辑测试（insert/search/remove）
- - `tests/kv_store_test.cpp`：KVStore 整体集成测试（目录管理、WAL 检测、Put/Get 接口）
- 
- 测试是如何跑起来的（理解链路即可，不必死记命令）：
-- **GTest**：写断言与测试用例（`TEST(...)`、`EXPECT_EQ(...)` 等）
-- **CTest**：统一的测试执行器，负责“发现并运行测试”（配合 CMake）
-- **CMake**：把测试目标编译出来，并把 GTest 用例注册给 CTest
-
-### 12.3 ASSERT 与 EXPECT 如何选择
-
-GTest 的断言分两类：
-- `EXPECT_*`：失败会记录错误，但继续执行当前测试用例后续语句
-- `ASSERT_*`：失败会立刻中断当前测试用例（返回）
-
-经验规则：
-- 如果后面的代码依赖“当前断言必须成立”才能安全执行（比如 `optional.value()` 之前必须 `has_value()`），用 `ASSERT_*`
-- 如果后面的代码不依赖该条件，用 `EXPECT_*` 让一次运行尽可能收集更多失败信息
-
-### 12.4 常用断言速查
-
-基础断言：
-- `EXPECT_TRUE(x)` / `EXPECT_FALSE(x)`
-- `EXPECT_EQ(a, b)` / `EXPECT_NE(a, b)`
-- `ASSERT_TRUE(x)` / `ASSERT_EQ(a, b)`
-
-`std::optional` 相关：
-- `ASSERT_TRUE(opt.has_value())`：确认有值（失败就中断，避免后续 `value()` 不安全）
-- `EXPECT_FALSE(opt.has_value())`：确认无值（未命中）
-- `EXPECT_EQ(opt.value(), expected)`：对比值（在确认 has_value 之后）
-
-### 12.5 写测试的 AAA 套路
-
-把每个测试都按三段组织，读起来最清晰：
-- **Arrange**：准备数据与环境（构造对象、准备输入）
-- **Act**：执行动作（调用要测试的函数）
-- **Assert**：断言结果（验证输出、状态、不变量）
-
-对应到跳表：
-- Arrange：创建 `SkipList`、准备 key/value、固定随机种子或固定概率
-- Act：`insert` / `search` / `remove`
-- Assert：命中/未命中、值正确、删除后不可再查到
-
-### 12.6 让测试可复现
-
-测试想要“稳定”，要尽量消除不确定性：
-- **固定随机种子**：例如 `std::mt19937 rng(12345)`，确保 shuffle 结果固定
-- **控制随机层数路径**：用 `prob=0.0f` 或 `prob=1.0f` 覆盖确定路径
-- **避免依赖遍历顺序**：`unordered_map` 的遍历顺序不保证稳定，不要把“遍历顺序”作为测试依据
-
-### 12.7 KVStore 验收测试
-
-针对第 3 周任务一（KVStore 骨架与目录管理），新增了集成测试文件 `tests/kv_store_test.cpp`，覆盖以下场景：
-
-| 测试用例名 | 测试目的 | 状态 |
-| :--- | :--- | :--- |
-| `CreatesDataDirectory` | 验证当 data 目录不存在时，KVStore 能自动创建 | ✅ Passed |
-| `DetectsExistingWAL` | 验证当 wal.log 存在时，KVStore 能识别并打印恢复日志 | ✅ Passed |
-| `BasicPutGet` | 验证最基础的 Put/Get 接口能否打通 MemTable | ✅ Passed |
-| `UpdateKey` | 验证重复 Put 同一个 Key 是否正确更新 Value | ✅ Passed |
-| `DeleteKey` | 验证 Del 接口能否正确移除 Key | ✅ Passed |
-
-**最近一次运行结果**：
-- 2026-01-31：全量测试通过（19/19 tests passed）。
-- 包含 `SkipListTest` (14个) 和 `KVStoreTest` (5个)。
+该文档包含：
+1.  **测试体系概览**：GTest/CTest 的使用方法与 AAA 测试套路。
+2.  **测试用例清单**：各模块（SkipList, KVStore, WAL）的核心测试点说明。
+3.  **历史测试记录**：每周任务的详细验收状态与结果汇总。
