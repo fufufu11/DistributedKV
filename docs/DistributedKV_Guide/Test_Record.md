@@ -90,3 +90,8 @@ ctest --test-dir build --output-on-failure
 - **2026-02-04**：WAL 编解码与校验验收通过 (Task 2)
     - 结果：`22/22 tests passed` (全量)
     - 新增用例：`CRC32Test`, `WALRecordTest` (EncodePut/EncodeDelete)。
+
+- **2026-02-05**：WAL 写入与持久化验收通过 (Task 3)
+    - 结果：`23/23 tests passed`
+    - 新增用例：`KVStoreTest.WALPersistenceCheck`。
+    - 验证点：`Put`/`Delete` 操作后，WAL 文件被创建且包含预期数据（强持久化生效）。

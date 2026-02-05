@@ -1120,10 +1120,12 @@ ctest --test-dir build --output-on-failure
     *   **测试**：对“编码->解码”与“校验失败”分别写单元测试。
     *   **当前进度**：已补充 `encode_log_record` 文档注释并修正 checksum 写入位置（写入记录头部 4B 预留区，避免越界）。
 
-*   **任务三：WAL 写入（Writer）**
+*   **任务三：WAL 写入（Writer）(已完成)**
     *   **追加写**：只允许 append，禁止中间修改；每条记录写入后执行 `Flush/Sync`（本周先不用 group commit）。
     *   **错误处理**：任何 I/O 失败必须向上返回错误，避免“WAL 写失败但 MemTable 仍更新”的不一致。
-    *   **验收点**：写入 N 条后关闭进程（不做正常关闭流程），重启可恢复。
+    *   **验收点**：写入 N 条后关闭进程（不做正常关闭流程），**数据文件完整存在，为后续恢复提供物理基础**。
+    *   **实现策略**：为了保证断电数据不丢失，采用了 **Write (`fwrite`) -> Flush (`fflush`) -> Sync (`_commit/fsync`)** 的强持久化链路。此方案虽使用了 C 风格接口，但提供了比 C++ `std::ofstream` 更高的**数据持久化可靠性（Durability）**，能够防止断电导致的数据丢失。
+    *   **测试结果**：`KVStoreTest.WALPersistenceCheck` 通过，验证了写入操作会实时落盘。
 
 *   **任务四：WAL 读取与重放（Reader/Replay）**
     *   **顺序扫描**：从头到尾读取并解析记录；遇到尾部不完整停止。

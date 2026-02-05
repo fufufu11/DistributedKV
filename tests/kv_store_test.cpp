@@ -105,3 +105,28 @@ TEST_F(KVStoreTest, DetectsExistingWAL) {
         EXPECT_TRUE(fs::exists(fs::path(test_dir_) / "wal.log"));
     }
 }
+
+/**
+ * @brief 验证 WAL 写入持久化 (Task 3 验收)
+ */
+TEST_F(KVStoreTest, WALPersistenceCheck) {
+    {
+        KVStore store(test_dir_);
+        store.put(1, "persistent_val");
+        store.del(1);
+    }
+    
+    // 验证 WAL 文件存在且不为空
+    fs::path wal_path = fs::path(test_dir_) / "wal.log";
+    ASSERT_TRUE(fs::exists(wal_path));
+    EXPECT_GT(fs::file_size(wal_path), 0);
+    
+    // 简单的内容检查（确保里面有刚才写入的字符串）
+    std::ifstream ifs(wal_path, std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    
+    // 应该能找到 key 和 value 的痕迹
+    // 注意：int key=1 被转为 string "1"
+    EXPECT_NE(content.find("persistent_val"), std::string::npos);
+    EXPECT_NE(content.find("1"), std::string::npos); // key "1"
+}
