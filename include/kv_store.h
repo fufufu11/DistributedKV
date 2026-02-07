@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // 平台兼容性处理：为了调用底层的 Sync API
 // Windows 使用 _commit, Linux/Unix 使用 fsync
@@ -52,18 +53,16 @@ public:
 
     wal_path_ = data_dir_ / "wal.log";
 
+    if (std::filesystem::exists(wal_path_) && std::filesystem::file_size(wal_path_) > 0) {
+        replay_wal();
+    } else {
+        std::cout << "[KVStore] WAL initialized (New)." << std::endl;
+    }
     // 使用 C 风格 fopen 以便获取底层文件描述符用于 Sync
     wal_file_ = fopen(wal_path_.string().c_str(), "ab");
     if (!wal_file_) {
       throw std::runtime_error("Failed to open WAL file: " +
                                wal_path_.string());
-    }
-
-    if (std::filesystem::file_size(wal_path_) > 0) {
-      std::cout << "[KVStore] Found existing WAL, ready for recovery (Task 4)."
-                << std::endl;
-    } else {
-      std::cout << "[KVStore] WAL initialized (New)." << std::endl;
     }
   }
 
@@ -125,6 +124,101 @@ public:
   }
 
 private:
+  /**
+     * @brief [Task 4] 重放 WAL 日志，恢复 MemTable (Crash Recovery)
+     * 
+     * 该函数在数据库启动时被调用，用于将上次非正常关闭（崩溃/断电）时遗留在磁盘上的
+     * WAL 日志记录重新应用到内存中，从而恢复数据一致性。
+     * 
+     * 核心流程 (Read -> Verify -> Apply):
+     * 1. **Read**: 循环读取日志记录的 Header (13B) 和 Payload。
+     * 2. **Verify**: 计算 Payload 的 CRC32 校验和，与 Header 中的 Checksum 比对。
+     *    - 若校验失败或读取不完整，视为崩溃现场，停止重放（Fail-Stop）。
+     * 3. **Apply**: 将验证通过的记录（Put/Delete）重新执行到 MemTable。
+     */
+    void replay_wal() {
+      FILE* fp = fopen(wal_path_.string().c_str(), "rb");
+      if(!fp) {
+        return;
+      }
+
+      std::cout << "[Recovery] Replaying WAL..." << std::endl;
+
+      while(true) {
+        // ... (省略部分变量定义，保持原有逻辑)
+        uint32_t stored_checksum;
+        uint32_t key_len;
+        uint32_t value_len;
+        uint8_t type_u8;
+
+        // 1. Read Header (13 Bytes)
+        // 如果读取不足 13 字节，说明文件在 Header 处被截断（崩溃点），停止重放。
+        if(fread(&stored_checksum, 1, 4,fp) != 4) break;
+        if(fread(&key_len, 1, 4, fp) != 4) break;
+        if(fread(&value_len, 1, 4, fp) != 4) break;
+        if(fread(&type_u8, 1, 1, fp) != 1) break;
+
+        std::string key;
+        std::string value;
+
+        // 2. Read Payload
+        // 如果 Payload 读取不足，说明文件在 Body 处被截断，停止重放。
+        if(key_len > 0) {
+          key.resize(key_len);
+          if(fread(key.data(), 1, key_len, fp) != key_len) break;
+        }
+
+        if(value_len > 0) {
+          value.resize(value_len);
+          if(fread(value.data(), 1, value_len, fp) != value_len) break;
+        }
+
+        // 3. Verify Checksum
+        // 重新计算 (KeyLen + ValLen + Type + Payload) 的 CRC32
+        uint32_t payload_total_len = 4 + 4 + 1 + key_len + value_len;
+        std::vector<char> verify_buffer (payload_total_len);
+        char* ptr = verify_buffer.data();
+
+        memcpy(ptr, &key_len, 4); ptr += 4;
+        memcpy(ptr, &value_len, 4); ptr += 4;
+        memcpy(ptr, &type_u8, 1); ptr += 1;
+
+        if(key_len > 0) {
+          memcpy(ptr, key.data(), key_len); ptr += key_len;
+        }
+        if(value_len > 0) {
+          memcpy(ptr, value.data(), value_len);
+        }
+
+        uint32_t calculated_crc = crc32(verify_buffer.data(), payload_total_len);
+        if(stored_checksum != calculated_crc) {
+          // 遇到校验错误（中间位翻转或写入未完成），严格模式下应报错。
+          // 这里简单处理为停止重放。
+          std::cerr << "[Recovery] Checksum mismatch! (Truncated or Corrupted). Stopping." << std::endl;
+          break;
+        }
+
+        // 4. Apply to MemTable
+        // 将磁盘上的持久化数据恢复到内存结构中
+        LogType type = static_cast<LogType>(type_u8);
+        try {
+          // 反序列化：因为 KVStore 定义为 <int, string>，所以必须将 WAL 中的 string key 转回 int。
+          // 注意：如果磁盘数据损坏导致 key 变成了非数字字符串，stoi 会抛出异常。
+          int key_int = std::stoi(key);
+
+          if(type == LogType::kPut) {
+            memtable_.insert(key_int, value);
+          } else if (type == LogType::kDelete) {
+            memtable_.remove(key_int);
+          }
+        } catch (...) {
+           // 容错处理：忽略损坏的记录（生产环境建议记录 Error 日志）
+           std::cerr << "[Recovery] Failed to parse key: " << key << ". Skipping." << std::endl;
+        }
+      }
+      fclose(fp);
+      std::cout << "[Recovery] WAL replay finished." << std::endl;
+    }
   /**
    * @brief 核心辅助函数：将日志记录持久化到磁盘
    * 

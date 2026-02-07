@@ -1,5 +1,4 @@
 # DistributedKV 项目学习手册
-
 ## 目录
 - [1. 项目愿景](#1-项目愿景)
 - [2. 核心架构：LSM-Tree 存储策略](#2-核心架构lsm-tree-存储策略)
@@ -1127,7 +1126,7 @@ ctest --test-dir build --output-on-failure
     *   **实现策略**：为了保证断电数据不丢失，采用了 **Write (`fwrite`) -> Flush (`fflush`) -> Sync (`_commit/fsync`)** 的强持久化链路。此方案虽使用了 C 风格接口，但提供了比 C++ `std::ofstream` 更高的**数据持久化可靠性（Durability）**，能够防止断电导致的数据丢失。
     *   **测试结果**：`KVStoreTest.WALPersistenceCheck` 通过，验证了写入操作会实时落盘。
 
-*   **任务四：WAL 读取与重放（Reader/Replay）**
+*   **任务四：WAL 读取与重放（Reader/Replay） (已完成)**
     *   **顺序扫描**：从头到尾读取并解析记录；遇到尾部不完整停止。
     *   **回放语义**：按 `sequence` 的顺序对 MemTable 执行 Put/Del；保证同一个 key 的多次更新能得到最后一次结果。
     *   **验收点**：重放完成后，可通过 Get 验证状态与崩溃前一致（截至最后一条完整记录）。
@@ -1147,13 +1146,6 @@ ctest --test-dir build --output-on-failure
     *   能通过 WAL 重放重建 MemTable（无需 SSTable 参与）。
     *   “尾部不完整写入”可容忍，不崩溃，且恢复结果可解释（截至最后一条完整记录）。
     *   checksum 损坏可被检测到，并有明确的失败表现（错误码/异常/日志三选一，但需一致）。
-
-*   **测试结果记录**
-    *   详细测试记录与方法论请参阅：[Test_Record.md](./Test_Record.md)
-    *   [x] WAL 编解码单测 (Task 2)
-    *   [ ] WAL 重放恢复 (Task 4)
-    *   [ ] 尾部截断容错 (Task 6)
-    *   [ ] Checksum 损坏检测 (Task 6)
 
 **第 4 周：SSTable 文件格式**
 - 学习内容：有序文件结构、索引与数据块布局

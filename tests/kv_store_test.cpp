@@ -130,3 +130,85 @@ TEST_F(KVStoreTest, WALPersistenceCheck) {
     EXPECT_NE(content.find("persistent_val"), std::string::npos);
     EXPECT_NE(content.find("1"), std::string::npos); // key "1"
 }
+
+/**
+ * @brief [Task 4] WAL 重放恢复测试 (Recovery Test)
+ */
+class WALReplayTest : public KVStoreTest {
+    // 继承 KVStoreTest 的 SetUp/TearDown
+};
+
+TEST_F(WALReplayTest, NormalRecovery) {
+    // 1. 写入数据并销毁 Store
+    {
+        KVStore store(test_dir_);
+        store.put(1, "val1");
+        store.put(2, "val2");
+        store.del(1); // 删除 1
+    } // store 析构，确保 buffer flush 到文件
+
+    // 2. 重新打开 Store (触发 Replay)
+    {
+        KVStore store(test_dir_);
+        
+        // 验证 key 1 被删除
+        auto v1 = store.get(1);
+        EXPECT_FALSE(v1.has_value());
+
+        // 验证 key 2 存在
+        auto v2 = store.get(2);
+        ASSERT_TRUE(v2.has_value());
+        EXPECT_EQ(v2.value(), "val2");
+    }
+}
+
+TEST_F(WALReplayTest, TruncatedWAL) {
+    // 1. 写入有效数据
+    {
+        KVStore store(test_dir_);
+        store.put(1, "valid");
+    }
+
+    // 2. 模拟尾部截断：手动向 WAL 追加不足一个 Header 的垃圾数据
+    fs::path wal_path = fs::path(test_dir_) / "wal.log";
+    {
+        std::ofstream wal(wal_path, std::ios::binary | std::ios::app);
+        char trash[5] = {0, 1, 2, 3, 4};
+        wal.write(trash, 5); // 写入 5 字节，不足 Header(13)
+    }
+
+    // 3. 重启，程序应忽略尾部垃圾，且保留之前的数据
+    {
+        KVStore store(test_dir_);
+        auto v1 = store.get(1);
+        ASSERT_TRUE(v1.has_value());
+        EXPECT_EQ(v1.value(), "valid");
+    }
+}
+
+TEST_F(WALReplayTest, CorruptedWAL) {
+    // 1. 写入数据
+    {
+        KVStore store(test_dir_);
+        store.put(1, "val1");
+    }
+
+    // 2. 破坏文件：修改中间的一个字节导致 Checksum 不匹配
+    // 假设 put(1, "val1") 的编码长度大约是 13+1+4 = 18 字节左右
+    fs::path wal_path = fs::path(test_dir_) / "wal.log";
+    {
+        std::fstream wal(wal_path, std::ios::binary | std::ios::in | std::ios::out);
+        wal.seekp(10); // 偏移 10 字节处修改
+        wal.put(0xFF); // 破坏数据
+    }
+
+    // 3. 重启
+    // 预期：Replay 检测到 Checksum 错误后停止。
+    // 由于我们目前的策略是 "Stop Replay"，且被破坏的是第一条记录，
+    // 所以最终结果是 MemTable 为空（第一条也没恢复进去）。
+    {
+        KVStore store(test_dir_);
+        auto v1 = store.get(1);
+        EXPECT_FALSE(v1.has_value()) << "Corrupted record should not be applied";
+    }
+}

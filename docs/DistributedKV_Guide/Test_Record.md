@@ -71,6 +71,13 @@ ctest --test-dir build --output-on-failure
 - **Encode**：验证 `Put`/`Delete` 记录编码后的字节流长度、Header 字段及 Payload 内容。
 - **Checksum**：验证编码中写入的 Checksum 与实际计算一致。
 
+### 2.4 WAL 重放恢复测试 (`tests/kv_store_test.cpp`)
+
+覆盖崩溃恢复场景 (Task 4)：
+- **NormalRecovery**：写入并销毁对象后，重建对象能恢复之前的数据（Put/Delete）。
+- **TruncatedWAL**：WAL 尾部存在不完整记录（模拟断电半写），能自动忽略并恢复有效前缀。
+- **CorruptedWAL**：WAL 中间数据损坏（Checksum 不匹配），能识别并停止重放（Fail-Stop）。
+
 ---
 
 ## 3. 历史测试记录
@@ -95,3 +102,8 @@ ctest --test-dir build --output-on-failure
     - 结果：`23/23 tests passed`
     - 新增用例：`KVStoreTest.WALPersistenceCheck`。
     - 验证点：`Put`/`Delete` 操作后，WAL 文件被创建且包含预期数据（强持久化生效）。
+
+- **2026-02-07**：WAL 读取与重放验收通过 (Task 4)
+    - 结果：`26/26 tests passed`
+    - 新增用例：`WALReplayTest` (`NormalRecovery`, `TruncatedWAL`, `CorruptedWAL`)。
+    - 验证点：成功实现 Read -> Verify -> Apply 闭环；对崩溃截断和数据损坏有正确的容错处理。

@@ -29,3 +29,6 @@ compile_commands/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Runtime data
+data/
