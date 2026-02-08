@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include "kv_store.h"
+#include "wal_record.h"
 
 namespace fs = std::filesystem;
 
@@ -199,7 +200,7 @@ TEST_F(WALReplayTest, CorruptedWAL) {
     {
         std::fstream wal(wal_path, std::ios::binary | std::ios::in | std::ios::out);
         wal.seekp(10); // 偏移 10 字节处修改
-        wal.put(0xFF); // 破坏数据
+        wal.put(static_cast<char>(0xFF)); // 破坏数据
     }
 
     // 3. 重启
@@ -210,5 +211,114 @@ TEST_F(WALReplayTest, CorruptedWAL) {
         KVStore store(test_dir_);
         auto v1 = store.get(1);
         EXPECT_FALSE(v1.has_value()) << "Corrupted record should not be applied";
+    }
+}
+
+TEST_F(WALReplayTest, BulkRecovery1000) {
+    {
+        KVStore store(test_dir_);
+        for (int i = 0; i < 1000; ++i) {
+            store.put(i, "v" + std::to_string(i));
+        }
+    }
+
+    {
+        KVStore store(test_dir_);
+        for (int i = 0; i < 1000; ++i) {
+            auto v = store.get(i);
+            ASSERT_TRUE(v.has_value());
+            EXPECT_EQ(v.value(), "v" + std::to_string(i));
+        }
+    }
+}
+
+TEST_F(WALReplayTest, MixedPutDelRecovery) {
+    {
+        KVStore store(test_dir_);
+        for (int i = 0; i < 200; ++i) {
+            store.put(i, "init" + std::to_string(i));
+        }
+        for (int i = 0; i < 200; i += 2) {
+            store.del(i);
+        }
+        for (int i = 1; i < 200; i += 2) {
+            store.put(i, "final" + std::to_string(i));
+        }
+    }
+
+    {
+        KVStore store(test_dir_);
+        for (int i = 0; i < 200; ++i) {
+            auto v = store.get(i);
+            if (i % 2 == 0) {
+                EXPECT_FALSE(v.has_value());
+            } else {
+                ASSERT_TRUE(v.has_value());
+                EXPECT_EQ(v.value(), "final" + std::to_string(i));
+            }
+        }
+    }
+}
+
+TEST_F(WALReplayTest, TruncateMidRecord) {
+    {
+        KVStore store(test_dir_);
+        store.put(1, "v1");
+        store.put(2, "v2");
+    }
+
+    fs::path wal_path = fs::path(test_dir_) / "wal.log";
+    LogRecord r1{LogType::kPut, "1", "v1"};
+    const auto r1_encoded = encode_log_record(r1);
+    fs::resize_file(wal_path, r1_encoded.size() + 6);
+
+    {
+        KVStore store(test_dir_);
+        auto v1 = store.get(1);
+        ASSERT_TRUE(v1.has_value());
+        EXPECT_EQ(v1.value(), "v1");
+
+        auto v2 = store.get(2);
+        EXPECT_FALSE(v2.has_value());
+    }
+}
+
+TEST_F(WALReplayTest, CorruptMiddleRecordStopsAtPrefix) {
+    {
+        KVStore store(test_dir_);
+        for (int i = 1; i <= 10; ++i) {
+            store.put(i, "v" + std::to_string(i));
+        }
+    }
+
+    fs::path wal_path = fs::path(test_dir_) / "wal.log";
+    std::vector<size_t> record_sizes;
+    record_sizes.reserve(10);
+    for (int i = 1; i <= 10; ++i) {
+        LogRecord r{LogType::kPut, std::to_string(i), "v" + std::to_string(i)};
+        record_sizes.push_back(encode_log_record(r).size());
+    }
+
+    size_t offset = 0;
+    for (int i = 0; i < 4; ++i) {
+        offset += record_sizes[i];
+    }
+
+    {
+        std::fstream wal(wal_path, std::ios::binary | std::ios::in | std::ios::out);
+        wal.seekp(static_cast<std::streamoff>(offset + 13));
+        wal.put(static_cast<char>(0xFF));
+    }
+
+    {
+        KVStore store(test_dir_);
+        for (int i = 1; i <= 4; ++i) {
+            auto v = store.get(i);
+            ASSERT_TRUE(v.has_value());
+            EXPECT_EQ(v.value(), "v" + std::to_string(i));
+        }
+        for (int i = 5; i <= 10; ++i) {
+            EXPECT_FALSE(store.get(i).has_value());
+        }
     }
 }

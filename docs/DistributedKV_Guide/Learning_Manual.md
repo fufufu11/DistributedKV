@@ -1131,26 +1131,65 @@ ctest --test-dir build --output-on-failure
     *   **回放语义**：按 `sequence` 的顺序对 MemTable 执行 Put/Del；保证同一个 key 的多次更新能得到最后一次结果。
     *   **验收点**：重放完成后，可通过 Get 验证状态与崩溃前一致（截至最后一条完整记录）。
 
-*   **任务五：与 MemTable（SkipList）集成，打通最小闭环**
-    *   **最小接口**：至少支持 `Put/Get/Delete`（Delete 本周可实现为写 WAL + 在 MemTable 中标记删除）。
+*   **任务五：与 MemTable（SkipList）集成，打通最小闭环（已完成）**
+    *   **最小接口**：至少支持 `Put/Get/Delete`（Delete 本周实现为写 WAL + 在 MemTable 中物理删除；后续引入 SSTable 后再切换为 Tombstone 语义）。
     *   **写入路径顺序**：严格遵循 `WAL -> Sync -> MemTable`。
     *   **恢复路径**：启动时先 `Replay(WAL)` 构建 MemTable，再对外提供读写。
 
-*   **任务六：崩溃模拟与测试用例**
+*   **任务六：崩溃模拟与测试用例（已完成）**
     *   **用例 1**：写入 1000 条 Put，模拟重启，验证全部可读。
     *   **用例 2**：写入 Put+Del 混合，模拟重启，验证删除语义正确。
     *   **用例 3（关键）**：构造 WAL 尾部截断（截断到任意中间位置），重启应不崩溃，且恢复到最后一条完整记录为止。
     *   **用例 4（关键）**：构造 checksum 损坏，重放应返回明确错误（或按约定策略停止并提示原因）。
+    *   **对应测试**：`WALReplayTest.BulkRecovery1000` / `WALReplayTest.MixedPutDelRecovery` / `WALReplayTest.TruncateMidRecord` / `WALReplayTest.CorruptMiddleRecordStopsAtPrefix`
 
 *   **验收标准**
     *   能通过 WAL 重放重建 MemTable（无需 SSTable 参与）。
     *   “尾部不完整写入”可容忍，不崩溃，且恢复结果可解释（截至最后一条完整记录）。
     *   checksum 损坏可被检测到，并有明确的失败表现（错误码/异常/日志三选一，但需一致）。
 
-**第 4 周：SSTable 文件格式**
-- 学习内容：有序文件结构、索引与数据块布局
-- 开发任务：实现 SSTable 写入与加载接口
-- 验收标准：MemTable flush 到 SSTable 后可正确读取
+**第 4 周：SSTable 文件格式与 Flush 流程**
+
+本周目标：设计并实现 SSTable（Sorted String Table）的磁盘文件格式，完成从内存 MemTable 到磁盘文件的 Flush 流程，初步实现“分层存储”的雏形。
+
+*   **任务一：SSTable 物理布局设计 (On-Disk Layout)**
+    *   **理论**：理解 SSTable 的**不可变性 (Immutable)** 与 **有序性**。SSTable 一旦生成，永远不会被修改，只能被删除（Compaction 时）。
+    *   **设计 (Block-based)**：
+        *   **Data Block**：将数据按固定大小（如 4KB）切分，Block 内部有序存储 KV。Block 是 I/O 的最小单元。
+        *   **Meta Block (Index)**：记录每个 Data Block 的 **Last Key**（该块最大 Key）与 **Offset**（文件偏移量），用于快速定位 Key 所在的 Block。
+        *   **Footer**：文件末尾的定长区域（如 48 字节），记录 Index Block 的 Offset、Size 以及文件魔数 (Magic Number)。
+    *   **产出**：在 `docs/format.md` 或头文件中明确字节级布局。
+
+*   **任务二：SSTable 构造器 (Builder)**
+    *   **类设计**：`SSTableBuilder`
+    *   **核心逻辑**：
+        *   `Add(key, value)`：接收来自 MemTable 的有序 KV 对。
+        *   **Buffer 管理**：在内存中缓存数据，当达到 Block Size 阈值时，打包成 Block 写入磁盘，并计算 Checksum（CRC32）。
+        *   **Index 构建**：每写入一个 Data Block，在内存中记录其 `Last Key` 和 `Offset`。
+        *   `Finish()`：将内存中的 Index 数据写入文件，最后写入 Footer，关闭文件。
+    *   **验收**：编写单元测试，手动构造 KV 调用 Builder，生成一个 `.sst` 文件，检查文件大小是否符合预期。
+
+*   **任务三：SSTable 读取器 (Reader & Iterator)**
+    *   **类设计**：`SSTable` (Reader)
+    *   **核心逻辑**：
+        *   `Open(file_path)`：打开文件，读取末尾 Footer，根据 Footer 信息读取并解析 Index Block。
+        *   `NewIterator()`：提供类似 MemTable 的迭代器接口 (`Seek`, `Valid`, `Key`, `Value`, `Next`)。
+        *   **查找优化**：在 `Seek(key)` 时，先在 Index Block 中**二分查找**定位到目标 Data Block，再读取该 Block 并在其内部查找。
+    *   **验收**：读取任务二生成的 `.sst` 文件，验证所有 KV 能被正确读出，且顺序正确。
+
+*   **任务四：集成 Flush (MemTable -> SSTable)**
+    *   **代码**：在 `KVStore` 中增加 `Flush` 逻辑。
+    *   **流程**：
+        1.  **触发**：当 MemTable 占用内存达到阈值（如 2MB）。
+        2.  **冻结**：将当前 MemTable 标记为 Immutable，并创建一个新的 MemTable 接收新写入。
+        3.  **Dump**：遍历 Immutable MemTable，调用 `SSTableBuilder` 将其序列化为磁盘上的 `L0_001.sst` 文件。
+        4.  **清理**：Flush 成功后，清空 Immutable MemTable，并**删除对应的 WAL 文件**（因为数据已持久化到 SSTable）。
+    *   **注意**：本周暂不实现 Manifest（元数据管理），只需简单用文件名管理（如递增 ID）。
+
+*   **任务五：单元测试与验证**
+    *   **测试用例 1 (SSTable 读写)**：写入 10000 条数据，Flush 成文件，重新 Open 并校验数据完整性。
+    *   **测试用例 2 (Block 边界)**：构造跨 Block 的数据（例如 Key 刚好在 Block 边界），验证查找正确性。
+    *   **测试用例 3 (重启持久化)**：写入数据 -> Flush -> 模拟重启 -> 仅从 SSTable 读取（本周 Get 接口可能还未完全打通，可用 Iterator 验证）。
 
 **第 5 周：查询路径打通**
 - 学习内容：读路径分层（MemTable + SSTable）

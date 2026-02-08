@@ -73,10 +73,14 @@ ctest --test-dir build --output-on-failure
 
 ### 2.4 WAL 重放恢复测试 (`tests/kv_store_test.cpp`)
 
-覆盖崩溃恢复场景 (Task 4)：
+覆盖崩溃恢复场景 (Task 4) 以及崩溃模拟用例 (第 3 周 Task 6)：
 - **NormalRecovery**：写入并销毁对象后，重建对象能恢复之前的数据（Put/Delete）。
 - **TruncatedWAL**：WAL 尾部存在不完整记录（模拟断电半写），能自动忽略并恢复有效前缀。
 - **CorruptedWAL**：WAL 中间数据损坏（Checksum 不匹配），能识别并停止重放（Fail-Stop）。
+- **BulkRecovery1000**：写入 1000 条 Put，模拟重启后全部可读。
+- **MixedPutDelRecovery**：Put/Delete/覆盖更新混合写入，模拟重启后最终状态正确。
+- **TruncateMidRecord**：将 WAL 截断到某条记录中间，重启仅恢复完整前缀且不崩溃。
+- **CorruptMiddleRecordStopsAtPrefix**：中间记录损坏时，重启仅恢复损坏记录之前的前缀并停止。
 
 ---
 
@@ -107,3 +111,8 @@ ctest --test-dir build --output-on-failure
     - 结果：`26/26 tests passed`
     - 新增用例：`WALReplayTest` (`NormalRecovery`, `TruncatedWAL`, `CorruptedWAL`)。
     - 验证点：成功实现 Read -> Verify -> Apply 闭环；对崩溃截断和数据损坏有正确的容错处理。
+
+- **2026-02-08**：崩溃模拟用例补齐验收通过 (Task 6)
+    - 结果：`30/30 tests passed`
+    - 新增用例：`WALReplayTest` (`BulkRecovery1000`, `MixedPutDelRecovery`, `TruncateMidRecord`, `CorruptMiddleRecordStopsAtPrefix`)。
+    - 验证点：覆盖大批量重启恢复、Put/Delete 混合恢复、记录中途截断恢复前缀、以及中间记录损坏 fail-stop 行为。
