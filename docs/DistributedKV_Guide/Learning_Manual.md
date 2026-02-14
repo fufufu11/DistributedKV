@@ -1,6 +1,7 @@
 # DistributedKV 项目学习手册
 ## 目录
-- [1. 项目愿景](#1-项目愿景)
+- [1. 项目愿景与分布式系统基础](#1-项目愿景与分布式系统基础)
+    - [1.1 什么是分布式系统？](#11-什么是分布式系统)
 - [2. 核心架构：LSM-Tree 存储策略](#2-核心架构lsm-tree-存储策略)
     - [2.1 什么是 LSM-Tree？](#21-什么是-lsm-tree)
     - [2.2 为什么选择 LSM-Tree？](#22-为什么选择-lsm-tree)
@@ -17,6 +18,9 @@
         - [3.4.6 删除操作详解 (Remove)](#346-删除操作详解-remove)
         - [3.4.7 Remove 的时空复杂度与工程注意事项](#347-remove-的时空复杂度与工程注意事项)
     - [3.5 跳表单元测试（insert/search/remove）](#35-跳表单元测试insertsearchremove)
+        - [3.5.1 当前已实现用例覆盖点（14 个）](#351-当前已实现用例覆盖点14-个)
+        - [3.5.2 remove 覆盖点（已实现）](#352-remove-覆盖点已实现)
+        - [3.5.3 验收结果记录](#353-验收结果记录)
 - [4. 持久化机制：WAL 预写日志](#4-持久化机制wal-预写日志)
     - [4.1 什么是 WAL？](#41-什么是-wal)
     - [4.2 为什么需要 WAL？](#42-为什么需要-wal)
@@ -30,32 +34,53 @@
         - [4.7.3 物理布局 (On-Disk Layout)](#473-物理布局-on-disk-layout)
         - [4.7.4 为什么把 Checksum 放在最前面？](#474-为什么把-checksum-放在最前面)
         - [4.7.5 数据完整性校验：CRC32 算法详解](#475-数据完整性校验crc32-算法详解)
-- [5. 分布式共识：Raft 协议](#5-分布式共识raft-协议)
-- [6. 现代 C++ 语言特性与工程实践](#6-现代-c-语言特性与工程实践)
-    - [6.1 RAII 与智能指针（概念与选型）](#61-raii-与智能指针概念与选型)
-    - [6.2 现代 C++：std::optional 与 std::nullopt](#62-现代-cstdoptional-与-stdnullopt)
-    - [6.3 C++17：结构化绑定（Structured Bindings）](#63-c17结构化绑定structured-bindings)
-    - [6.4 C++ 关键字：explicit](#64-c-关键字explicit)
-    - [6.5 C++17：std::filesystem::path 的 operator/](#65-c17stdfilesystempath-的-operator)
-    - [6.6 C++ 关键字：inline（头文件与链接）](#66-c-关键字inline头文件与链接)
-    - [6.7 C++ 类型转换：static_cast](#67-c-类型转换static_cast)
-- [7. 构建系统与 CMake](#7-构建系统与-cmake)
-    - [7.1 为什么选择 CMake + G++？](#71-为什么选择-cmake--g)
-    - [7.2 本项目的构建工具链](#72-本项目的构建工具链)
-    - [7.3 如何搭建开发环境 (Windows)](#73-如何搭建开发环境-windows)
-    - [7.4 使用 build.ps1 构建](#74-使用-buildps1-构建)
-    - [7.5 运行与验证](#75-运行与验证)
-    - [7.6 VS Code 快捷键与集成](#76-vs-code-快捷键与集成)
-- [8. 编码规范与文档化](#8-编码规范与文档化)
-- [9. 学习路径建议](#9-学习路径建议)
-- [10. 关键术语表](#10-关键术语表)
-- [11. 项目计划（周级细化）](#11-项目计划周级细化)
-    - [11.1 阶段 A：单机存储引擎（第 1–6 周）](#111-阶段-a单机存储引擎第-16-周)
-    - [11.2 阶段 B：Raft 共识协议（第 7–12 周）](#112-阶段-braft-共识协议第-712-周)
-    - [11.3 阶段 C：网络层与集成（第 13–16 周）](#113-阶段-c网络层与集成第-1316-周)
-    - [11.4 阶段 D：工程化与展示（第 17–20 周）](#114-阶段-d工程化与展示第-1720-周)
-    - [11.5 每周投入建议](#115-每周投入建议)
-- [12. 测试与验证（详见独立文档）](#12-测试与验证详见独立文档)
+- [5. 磁盘存储：SSTable 文件格式](#5-磁盘存储sstable-文件格式)
+    - [5.1 SSTable 概览](#51-sstable-概览)
+    - [5.2 物理布局 (Physical Layout)](#52-物理布局-physical-layout)
+    - [5.3 Data Block 格式](#53-data-block-格式)
+    - [5.4 Index Block 格式](#54-index-block-格式)
+    - [5.5 Footer 格式](#55-footer-格式)
+- [6. 分布式共识：Raft 协议](#6-分布式共识raft-协议)
+- [7. 现代 C++ 语言特性与工程实践](#7-现代-c-语言特性与工程实践)
+    - [7.1 RAII 与智能指针（概念与选型）](#71-raii-与智能指针概念与选型)
+    - [7.2 现代 C++：std::optional 与 std::nullopt](#72-现代-cstdoptional-与-stdnullopt)
+        - [7.2.1 `std::optional<T>`：可能有值的返回类型](#721-stdoptionalt可能有值的返回类型)
+        - [7.2.2 `std::nullopt`：表示“空的 optional”](#722-stdnullopt表示空的-optional)
+        - [7.2.3 常用 API（写测试时会频繁用到）](#723-常用-api写测试时会频繁用到)
+        - [7.2.4 在本项目中的应用：跳表 Search](#724-在本项目中的应用跳表-search)
+    - [7.3 C++17：结构化绑定（Structured Bindings）](#73-c17结构化绑定structured-bindings)
+        - [7.3.1 最常见的形式：拆 `std::pair`](#731-最常见的形式拆-stdpair)
+        - [7.3.2 `auto` / `auto&` / `const auto&` 的区别（非常关键）](#732-auto-auto-const-auto-的区别非常关键)
+        - [7.3.3 还能拆哪些类型？](#733-还能拆哪些类型)
+        - [7.3.4 记一个避免踩坑的规则](#734-记一个避免踩坑的规则)
+    - [7.4 C++ 关键字：explicit](#74-c-关键字explicit)
+    - [7.5 C++17：std::filesystem::path 的 operator/](#75-c17stdfilesystempath-的-operator)
+    - [7.6 C++ 关键字：inline（头文件与链接）](#76-c-关键字inline头文件与链接)
+        - [7.6.1 什么是“内联展开” (Inline Expansion)？](#761-什么是内联展开-inline-expansion)
+        - [7.6.2 为什么头文件里的函数要加 inline？](#762-为什么头文件里的函数要加-inline)
+        - [7.6.3 总结](#763-总结)
+    - [7.7 C++ 类型转换：static_cast](#77-c-类型转换static_cast)
+        - [7.7.1 什么是 static_cast？](#771-什么是-static_cast)
+        - [7.7.2 为什么要取代 C 风格转换？](#772-为什么要取代-c-风格转换)
+        - [7.7.3 实战场景：防止符号扩展 bug](#773-实战场景防止符号扩展-bug)
+- [8. 构建系统与 CMake](#8-构建系统与-cmake)
+    - [8.1 为什么选择 CMake + G++？](#81-为什么选择-cmake-g)
+    - [8.2 本项目的构建工具链](#82-本项目的构建工具链)
+    - [8.3 如何搭建开发环境 (Windows)](#83-如何搭建开发环境-windows)
+    - [8.4 使用 build.ps1 构建](#84-使用-buildps1-构建)
+    - [8.5 运行与验证](#85-运行与验证)
+    - [8.6 VS Code 快捷键与集成](#86-vs-code-快捷键与集成)
+- [9. 编码规范与文档化](#9-编码规范与文档化)
+    - [9.1 Doxygen 注释规范](#91-doxygen-注释规范)
+- [10. 学习路径建议](#10-学习路径建议)
+- [11. 关键术语表](#11-关键术语表)
+- [12. 项目计划（周级细化）](#12-项目计划周级细化)
+    - [12.1 阶段 A：单机存储引擎（第 1–6 周）](#121-阶段-a单机存储引擎第-16-周)
+    - [12.2 阶段 B：Raft 共识协议（第 7–12 周）](#122-阶段-braft-共识协议第-712-周)
+    - [12.3 阶段 C：网络层与集成（第 13–16 周）](#123-阶段-c网络层与集成第-1316-周)
+    - [12.4 阶段 D：工程化与展示（第 17–20 周）](#124-阶段-d工程化与展示第-1720-周)
+    - [12.5 每周投入建议](#125-每周投入建议)
+- [13. 测试与验证（详见独立文档）](#13-测试与验证详见独立文档)
 
 ---
 
@@ -77,26 +102,26 @@
 
 ---
 
-## 2. 核心架构：[LSM-Tree](#9-关键术语表) 存储策略
+## 2. 核心架构：LSM-Tree 存储策略
 
-### 2.1 什么是 [LSM-Tree](#8-关键术语表)？
-[LSM-Tree](#8-关键术语表) (Log-Structured Merge-Tree) 不是一种单一的数据结构，而是一种**存储策略**。它主张“所有写操作都先写内存，攒够了再批量顺序写磁盘”。
+### 2.1 什么是 LSM-Tree？
+[LSM-Tree](#9-关键术语表) (Log-Structured Merge-Tree) 不是一种单一的数据结构，而是一种**存储策略**。它主张“所有写操作都先写内存，攒够了再批量顺序写磁盘”。
 
 **深度解析：顺序写 vs 随机写**
 *   **随机写 (Random Write)**：类似于在图书馆找书，如果你要找 10 本分布在不同楼层的书，你需要不停地跑动、坐电梯、翻找，大部分时间浪费在“寻找”上。传统 B+ Tree 索引的就地更新就是随机写。
 *   **顺序写 (Sequential Write)**：类似于在纸上一行一行写字。你不需要翻页或跳跃，笔尖始终在移动。
 *   **性能差异**：在机械硬盘（HDD）上，顺序写比随机写快近千倍；在固态硬盘（SSD）上，顺序写也能显著减少磨损并提升吞吐量。
 
-[LSM-Tree](#8-关键术语表) 的核心技巧就是：**通过内存缓冲区和后台[合并 (Compaction)](#8-关键术语表)，将应用程序的“随机写”操作，在磁盘层面转化为“顺序写”操作。**
+[LSM-Tree](#9-关键术语表) 的核心技巧就是：**通过内存缓冲区和后台[合并 (Compaction)](#9-关键术语表)，将应用程序的“随机写”操作，在磁盘层面转化为“顺序写”操作。**
 
-### 2.2 为什么选择 [LSM-Tree](#8-关键术语表)？
+### 2.2 为什么选择 LSM-Tree？
 1. **极致的写入性能**：所有的写入都是追加操作（Append-only），利用了磁盘最擅长的顺序 I/O。
 2. **适应现代硬件**：对 SSD 极其友好，减少了随机小块写入带来的 GC 压力。
-3. **分层管理**：通过后台的 [Compaction（合并）](#8-关键术语表) 过程，逐步清理旧数据，保持数据的有序性。
+3. **分层管理**：通过后台的 [Compaction（合并）](#9-关键术语表) 过程，逐步清理旧数据，保持数据的有序性。
 
 **推荐阅读**：
-建议阅读《数据密集型应用系统设计 (DDIA)》第三章 "Storage and Retrieval"，其中详细对比了 B-Tree 和 [LSM-Tree](#8-关键术语表) 的优劣：
-- **[写入放大 (Write Amplification)](#8-关键术语表)**：[LSM-Tree](#8-关键术语表) 通常具有更低的写入放大，适合写密集型负载。
+建议阅读《数据密集型应用系统设计 (DDIA)》第三章 "Storage and Retrieval"，其中详细对比了 B-Tree 和 [LSM-Tree](#9-关键术语表) 的优劣：
+- **[写入放大 (Write Amplification)](#9-关键术语表)**：[LSM-Tree](#9-关键术语表) 通常具有更低的写入放大，适合写密集型负载。
 - **顺序 I/O**：即使在 SSD 上，顺序写也能减少擦写次数，延长设备寿命。
 
 ---
@@ -536,17 +561,195 @@ if (crc 的最低位是 1) {
 
 ---
 
-## 5. 分布式共识：[Raft](#8-关键术语表) 协议
-[Raft](#8-关键术语表) 是目前工业界最流行的分布式一致性算法。它将复杂的问题分解为三个子问题：
-1. **Leader 选举**：集群中始终有一个 Leader 负责处理所有客户端请求。
-2. **日志复制**：Leader 将操作记录同步给 Follower，只有大多数节点确认后，数据才算“提交”。
-3. **安全性**：通过[任期 (Term)](#8-关键术语表)和日志索引 (Index) 保证历史数据不被覆盖。
+### 4.7.6 WAL 与 SSTable 的终极对比 (The Big Picture)
+
+**核心疑问：既然 WAL 已经把操作记下来了，为什么还需要 SSTable？**
+
+这是一个非常深刻的问题。为了回答它，我们可以用**“草稿纸 vs 错题集”**来打比方：
+
+1.  **WAL = 草稿纸**
+    - **场景**：上课时老师语速飞快，你怕忘了，赶紧在草稿纸上**快速记下来**（顺序追加写）。
+    - **特点**：字迹潦草（未经整理），只要能看清就行；**用完即扔**。
+    - **作用**：万一你突然走神了（断电崩溃），看一眼草稿纸就能回忆起刚才讲到哪一步了（恢复数据）。
+
+2.  **MemTable = 脑子里的短期记忆**
+    - **场景**：你在听课的同时，脑子里在整理思路，把知识点按顺序排好。
+    - **特点**：查起来最快，但容量有限，且一睡觉（断电）就忘。
+
+3.  **SSTable = 整理好的错题集 / 课本**
+    - **场景**：当脑子（MemTable）快装不下了，你会把这些知识点**工工整整地誊写**到一本新的本子上（Flush）。
+    - **特点**：**只读**（Immutable），写满了就不改了；存在硬盘里，如果不主动扔（Compaction），它永远都在。
+    - **作用**：长期保存知识，且有目录（Index），查起来很快。
+
+**生命周期图解：**
+
+```mermaid
+graph TD
+    User[用户写请求 Put A=1] --> WAL[1. 先记草稿纸 (WAL)]
+    WAL --> MemTable[2. 再记脑子里 (MemTable)]
+    MemTable -->|内存满了?| Flush[3. 脑子满了，整理成册]
+    Flush --> SSTable[4. 写入硬盘 (SSTable)]
+    Flush -->|成功后| DeleteWAL[5. 扔掉草稿纸 (Delete WAL)]
+```
+
+**关键区别总结：**
+
+| 特性 | WAL (预写日志) | SSTable (排序字符串表) |
+| :--- | :--- | :--- |
+| **核心目的** | **持久化内存**（防丢） | **长期存储**（归档） |
+| **存储内容** | **操作流水** (Op Log) | **数据快照** (Sorted Data) |
+| **写入方式** | 实时追加 (Append) | 批量生成 (Dump) |
+| **读取频率** | 仅崩溃恢复时读 | 每次查询 (Get) 都可能读 |
+| **生命周期** | 短（Flush 后即删除） | 长（直到被 Compaction 合并） |
+| **是否有序** | 按时间顺序 (Time Order) | 按 Key 排序 (Key Order) |
 
 ---
 
-## 6. 现代 C++ 语言特性与工程实践
+## 5. 磁盘存储：SSTable 文件格式
 
-### 6.1 RAII 与智能指针（概念与选型）
+### 5.1 SSTable 概览
+SSTable (Sorted String Table) 是 Google Bigtable 论文中提出的核心数据结构，也是 LevelDB/RocksDB 的基础。
+它的核心特性是：
+1. **有序性**：内部 Key 有序存储，支持二分查找。
+2. **不可变性 (Immutable)**：一旦生成，永不修改。更新数据通过生成新的 SSTable 实现，旧文件由 Compaction 清理。
+
+### 5.2 物理布局 (Physical Layout)
+为了支持高效的随机读取（Get）和范围查询（Scan），我们将 SSTable 切分为多个 **Block**。
+典型的物理布局如下：
+
+```text
++-------------------------+ <--- File Start (Offset 0)
+| Data Block 1            |
+| [Key1 ... Key100]       |
++-------------------------+
+| Data Block 2            |
+| [Key101 ... Key200]     |
++-------------------------+
+| ...                     |
++-------------------------+
+| Data Block N            |
++-------------------------+ <--- Meta Block Offset
+| Meta Block (Optional)   |
+| (e.g. Bloom Filter)     |
++-------------------------+ <--- Index Block Offset
+| Index Block             |
+| Key100 -> {Offset,Size} |
+| Key200 -> {Offset,Size} |
+| ...                     |
++-------------------------+ <--- Footer Offset (File Size - 48)
+| Footer (Fixed 48B)      |
+| - Meta Index Handle     | ---> Points to Meta Block
+| - Index Handle          | ---> Points to Index Block
+| - Magic Number          |
++-------------------------+ <--- File End
+```
+
+### 5.2.1 核心组件关系图解 (The Big Picture)
+
+为了彻底理解这些名词及其关系，我们可以把 SSTable 看作一本**字典**：
+
+1.  **SSTable File** = **整本字典**。
+2.  **Data Block** = **字典的正文页**。
+    - **角色**：存肉。这是真正存储用户 Key-Value 数据的地方。
+    - 每一页包含了几十个单词（Key）和解释（Value）。
+    - 字典太厚了，必须撕成一页一页（Block）来管理，方便按需加载（缓存）。
+3.  **Meta Block (附录)**：
+    - **角色**：存工具。比如 **Bloom Filter**（布隆过滤器），它可以快速告诉我们“某个 Key 绝不存在于这本字典里”，从而省去翻书的时间。
+    - 数量通常只有 1 个（或者没有）。
+4.  **Index Block** = **侧边的字母索引标签**（或者目录页）。
+    - **角色**：存路标。
+    - 它不记单词的具体解释，只记“'Apple' 这个词在第 1 页”，“'Banana' 在第 2 页”。
+    - 它的 Key 是每个 Data Block 的**最后一个词**（最大值）。
+    - 它的 Value 是 **BlockHandle**（这一页在文件的第几行、有多少字）。
+5.  **Footer** = **封底的说明书**。
+    - **角色**：存入口。
+    - 它是我们拿起这本字典（打开文件）时**唯一**确定的东西（固定在最后）。
+    - 它告诉我们：“目录页（Index Block）在第 900 页”。
+    - 只有读了 Footer，才能找到 Index Block；只有读了 Index Block，才能找到 Data Block。
+
+**引用链 (Reference Chain)**：
+`Footer` -> `Index Block` -> `Data Block` -> `User Key/Value`
+
+### 5.3 Data Block 格式
+Data Block 是 I/O 的最小单元（通常 4KB）。
+内部格式：
+```text
++-----------+-----------+-------+-------+
+| Entry 1   | Entry 2   | ...   | CRC32 |
++-----------+-----------+-------+-------+
+```
+每个 Entry (KV) 的格式与 WAL 类似，但更紧凑（因为已有序，可做前缀压缩，本周暂不实现前缀压缩，仅做平铺）：
+- KeyLen (Varint32)
+- ValueLen (Varint32)
+- Key Bytes
+- Value Bytes
+
+### 5.4 Index Block 与 BlockHandle
+Index Block 也是一个 Block，但它存的 Key 是 **每个 Data Block 的最后一个 Key**（即该 Block 的最大值），Value 是 **BlockHandle**。
+
+**什么是 BlockHandle？**
+`BlockHandle` 本质上是一个“文件内部指针”。
+```cpp
+struct BlockHandle {
+    uint64_t offset; // 数据块在文件中的起始位置
+    uint64_t size;   // 数据块的长度
+};
+```
+它的设计意图是**解耦索引与数据**。Index Block 只需要知道“数据在哪里（Offset）”和“有多大（Size）”，而不需要关心数据的内容。
+
+**查找流程**：
+1. 在内存中加载 Index Block。
+2. 二分查找目标 Key。
+3. 找到第一个 `>= Key` 的索引项，获取其 `BlockHandle`。
+4. 根据 `BlockHandle` 的 offset 和 size，去磁盘读取对应的 Data Block。
+
+### 5.5 Footer 格式与设计哲学
+
+**Footer 位于文件末尾，且长度固定（本项目中为 48 字节）。**
+
+**1. 为什么要放在末尾？**
+这是 **Immutable（不可变）** 与 **Append-only（追加写）** 策略的必然结果。
+- 在写入 SSTable 时，我们是顺序写入 Data Block 的。
+- 只有写完所有 Data Block，我们才知道 Index Block 应该包含哪些内容（Offset/Size）。
+- 所以 Index Block 必须写在 Data Block 之后。
+- 既然 Index Block 最后才写，那谁来记录 Index Block 的位置呢？只能是最后写入的 Footer。
+- **读取顺序**：Open 文件 -> Seek 到末尾 -> 读 Footer -> 拿 Index Block Handle -> 读 Index Block -> 准备好查询。
+
+**2. 为什么要固定长度？**
+为了方便读取。我们不需要遍历整个文件去找 Footer，只需要 `Seek(file_size - 48)` 就能直接命中它。
+
+**3. 结构详解**
+```cpp
+struct Footer {
+    BlockHandle metaindex_handle; // 指向元数据块（BloomFilter 等）
+    BlockHandle index_handle;     // 指向索引块
+    uint64_t magic_number;        // 魔数
+};
+```
+
+**4. 什么是 Magic Number？**
+- **定义**：一个固定的 8 字节整数（本项目使用 `0xdb4775248b80fb57`）。
+- **来源揭秘**：这个数字并非随机生成。它是 **LevelDB** 项目主页 URL (`http://code.google.com/p/leveldb/`) 的 SHA-1 哈希值的前 64 位。
+    - SHA-1: `57fb808b247547db...`
+    - Little Endian: `0xdb4775248b80fb57`
+    - 这是一种程序员式的幽默与致敬。
+- **作用**：
+    1.  **身份识别**：确认这个文件真的是 SSTable，而不是一张图片或日志文件。
+    2.  **完整性校验**：如果文件尾部被截断，读取到的魔数大概率是对不上的，从而快速发现文件损坏。
+
+---
+
+## 6. 分布式共识：Raft 协议
+[Raft](#9-关键术语表) 是目前工业界最流行的分布式一致性算法。它将复杂的问题分解为三个子问题：
+1. **Leader 选举**：集群中始终有一个 Leader 负责处理所有客户端请求。
+2. **日志复制**：Leader 将操作记录同步给 Follower，只有大多数节点确认后，数据才算“提交”。
+3. **安全性**：通过[任期 (Term)](#9-关键术语表)和日志索引 (Index) 保证历史数据不被覆盖。
+
+---
+
+## 7. 现代 C++ 语言特性与工程实践
+
+### 7.1 RAII 与智能指针（概念与选型）
 **RAII** (Resource Acquisition Is Initialization)，即“资源获取即初始化”。它是 C++ 语言中最核心的编程思想之一。
 
 **核心逻辑：**
@@ -620,11 +823,11 @@ if (crc 的最低位是 1) {
 | **打破循环引用** | `std::weak_ptr` | 防止 A 引用 B，B 又引用 A 导致的永久不释放。 |
 | **底层性能敏感/算法实现** | 裸指针 (`T*`) | 仅用于**观察**（不拥有所有权），如跳表节点间的 `forward` 链接。 |
 
-### 6.2 现代 C++：std::optional 与 std::nullopt
+### 7.2 现代 C++：std::optional 与 std::nullopt
 
 在 C++ 中，“函数是否有返回结果”经常是业务语义的一部分。例如跳表的 `search(key)`：可能命中，也可能未命中。`std::optional` 用类型系统把这种“有/无”的语义表达出来。
 
-#### 6.2.1 `std::optional<T>`：可能有值的返回类型
+#### 7.2.1 `std::optional<T>`：可能有值的返回类型
 
 - **定义**：`std::optional<T>` 表示“一个可能存在、也可能不存在的 `T` 值”。它要么装着一个 `T`，要么为空。
 - **典型场景**：
@@ -635,12 +838,12 @@ if (crc 的最低位是 1) {
     - 如果返回 `T`，未命中时通常只能返回一个“特殊值”（例如 `-1`、空字符串），但特殊值可能与合法值冲突，产生歧义。
     - `optional` 让调用者必须显式处理“无值”分支，可读性更强。
 
-#### 6.2.2 `std::nullopt`：表示“空的 optional”
+#### 7.2.2 `std::nullopt`：表示“空的 optional”
 
 - **含义**：`std::nullopt` 是一个标记量，用来表示“这里没有值”。常用于构造/返回一个空的 `std::optional<T>`。
 - **示例**：`return std::nullopt;` 表示“未找到 / 不存在 / 没有结果”。
 
-#### 6.2.3 常用 API（写测试时会频繁用到）
+#### 7.2.3 常用 API（写测试时会频繁用到）
 
 - 判断是否有值：
     - `if (opt) { ... }`
@@ -651,7 +854,7 @@ if (crc 的最低位是 1) {
 - 带默认值取值：
     - `opt.value_or(default_value)`（无值时返回默认值，不抛异常）
 
-#### 6.2.4 在本项目中的应用：跳表 Search
+#### 7.2.4 在本项目中的应用：跳表 Search
 
 在本项目中，`SkipList::search` 返回 `std::optional<V>`：
 - 命中：返回包含 `value` 的 `optional`。
@@ -659,11 +862,11 @@ if (crc 的最低位是 1) {
 
 这样调用者可以清晰地区分“找到了一个值”和“没找到”，而无需约定一个可能冲突的特殊返回值。
 
-### 6.3 C++17：结构化绑定（Structured Bindings）
+### 7.3 C++17：结构化绑定（Structured Bindings）
 
 结构化绑定（Structured Bindings）是 C++17 引入的一种语法糖，用于把“可拆分”的对象（如 `std::pair` / `std::tuple` / `struct` / 数组）一次性拆成多个变量，提升可读性。
 
-#### 6.3.1 最常见的形式：拆 `std::pair`
+#### 7.3.1 最常见的形式：拆 `std::pair`
 
 ```cpp
 std::pair<int, std::string> p{1, "one"};
@@ -682,7 +885,7 @@ for (const auto& [k, val] : expected) {
 - `k`：key（类型是 `const int`，因此不能修改 key）
 - `val`：value（类型是 `std::string`，但由于外层是 `const auto&`，因此此处 `val` 也是只读引用）
 
-#### 6.3.2 `auto` / `auto&` / `const auto&` 的区别（非常关键）
+#### 7.3.2 `auto` / `auto&` / `const auto&` 的区别（非常关键）
 
 - `auto [a, b] = obj;`
   - 生成两个新变量，通常会发生拷贝/移动。
@@ -697,7 +900,7 @@ for (const auto& [k, val] : expected) {
 - 不拷贝 map 里的元素（更高效）
 - 不允许在循环中意外改动 key/value（更安全）
 
-#### 6.3.3 还能拆哪些类型？
+#### 7.3.3 还能拆哪些类型？
 
 - 拆 `std::tuple`：
   - `auto [x, y, z] = std::tuple{1, 2.0, "hi"};`
@@ -706,7 +909,7 @@ for (const auto& [k, val] : expected) {
 - 拆数组：
   - `int a[2] = {1,2}; auto [x, y] = a;`
 
-#### 6.3.4 记一个避免踩坑的规则
+#### 7.3.4 记一个避免踩坑的规则
 
 如果你想“在遍历时修改容器元素的 value”，应写：
 
@@ -720,7 +923,7 @@ for (auto& [k, v] : mp) {
 
 ---
 
-### 6.4 C++ 关键字：explicit
+### 7.4 C++ 关键字：explicit
 
 `explicit` 用来**禁止隐式类型转换**，最常见的用途是标注“单参数构造函数”和“类型转换运算符”，避免出现不经意的自动转换导致逻辑歧义。
 
@@ -749,19 +952,19 @@ void send_data(const Bytes& b) { /* ... */ }
 
 int main() {
     int packet_size = 1024;
-    
-    // [编译错误] 
-    // send_data(packet_size); 
+
+    // [编译错误]
+    // send_data(packet_size);
     // 错误原因：编译器不再允许把 int 自动转成 Bytes
-    
+
     // [正确] 显式构造
-    send_data(Bytes(packet_size)); 
+    send_data(Bytes(packet_size));
 }
 ```
 
 ---
 
-### 6.5 C++17：std::filesystem::path 的 operator/
+### 7.5 C++17：std::filesystem::path 的 operator/
 
 `std::filesystem::path` 重载了 `/` 运算符，用来**拼接路径**，返回一个新的 `path`。这不是数学除法，而是“路径拼接语义”。
 
@@ -780,11 +983,11 @@ int main() {
 
 ---
 
-### 6.6 C++ 关键字：inline（头文件与链接）
+### 7.6 C++ 关键字：inline（头文件与链接）
 
 很多初学者认为 `inline` 只是为了“性能”，其实在现代 C++ 工程中，它更重要的作用是**解决头文件链接问题**。
 
-#### 6.6.1 什么是“内联展开” (Inline Expansion)？
+#### 7.6.1 什么是“内联展开” (Inline Expansion)？
 “内联展开”是编译器的一种优化手段：**把函数调用直接替换为函数体本身**，从而省去函数调用的开销（压栈、跳转、返回）。
 
 **图解对比：**
@@ -808,14 +1011,14 @@ int add(int a, int b) { return a + b; }
   int x = add(1, 2);
   // 机器码逻辑：
   // 直接生成加法指令，没有 CALL/RET
-  // int x = 1 + 2; 
+  // int x = 1 + 2;
   ```
 
 **注意：** `inline` 关键字只是给编译器的**建议**。
 - 如果函数太复杂（有循环、递归），编译器会无视 `inline`，依然生成 CALL。
 - 即使没写 `inline`，只要开启 `-O2`，编译器也会自动把小函数内联。
 
-#### 6.6.2 为什么头文件里的函数要加 inline？
+#### 7.6.2 为什么头文件里的函数要加 inline？
 这是 `inline` 在工程中更关键的用途：**One Definition Rule (ODR) 的豁免权**。
 
 **问题场景：**
@@ -838,23 +1041,23 @@ inline int max_val(int a, int b) { return a > b ? a : b; }
 - 含义变了：告诉链接器，“这个函数可能在多个单元里被定义多次，但它们都是同一个东西，请忽略重复，最终只保留一份（或都内联掉）”。
 - **结论**：**只要你在头文件 (.h) 里写函数体，就必须加 `inline`**（类内定义的成员函数默认隐含 inline，所以不用显式写）。
 
-#### 6.6.3 总结
+#### 7.6.3 总结
 - **性能视角**：`inline` 只是建议，能不能展开看编译器心情。
 - **链接视角**：`inline` 是头文件写函数实现的**必须通行证**，防止重定义报错。
 - **本项目应用**：`wal_record.h` 中的 `crc32` 是在头文件直接实现的工具函数，所以必须加 `inline`。
 
 ---
 
-### 6.7 C++ 类型转换：static_cast
+### 7.7 C++ 类型转换：static_cast
 
 C++ 提供了四种显式类型转换操作符（`static_cast`, `dynamic_cast`, `const_cast`, `reinterpret_cast`），其中 `static_cast` 是使用最频繁、最推荐的“常规武器”。
 
-#### 6.7.1 什么是 static_cast？
+#### 7.7.1 什么是 static_cast？
 它是 C++ 用于进行**编译时检查**的显式类型转换。
 - **适用场景**：编译器认为“合理”的转换（如 `int` 转 `float`，`void*` 转具体指针，子类转父类）。
 - **不适用场景**：完全无关的类型转换（如 `int*` 转 `float*`，这需要 `reinterpret_cast`）。
 
-#### 6.7.2 为什么要取代 C 风格转换？
+#### 7.7.2 为什么要取代 C 风格转换？
 你可能习惯写 C 风格的 `(type)value`，例如 `(int)3.14`。但在 C++ 中，我们强烈建议改用 `static_cast<int>(3.14)`，理由如下：
 
 1.  **安全性（Safety）**：
@@ -864,7 +1067,7 @@ C++ 提供了四种显式类型转换操作符（`static_cast`, `dynamic_cast`, 
     - 在几万行代码里找“哪里把 float 转成了 int”？搜索 `(` 是不可能的。
     - 搜索 `static_cast` 可以瞬间定位所有显式转换，便于代码审计。
 
-#### 6.7.3 实战场景：防止符号扩展 bug
+#### 7.7.3 实战场景：防止符号扩展 bug
 在 `wal_record.h` 的 CRC 计算中，我们用到了：
 ```cpp
 uint8_t byte = static_cast<uint8_t>(data[i]);
@@ -885,21 +1088,21 @@ uint8_t byte = static_cast<uint8_t>(data[i]);
     - `0xFF` 被视为 `-1`。
     - 提升为 int 时发生**符号位扩展**，变成 `0xFFFFFFFF`（高 24 位全被填满 1）。
     - `crc ^ byte` = `0x00...00` ^ `0xFF...FF` = `0xFFFFFFFF`。
-    - **结果**：**本来只该影响低 8 位的，结果把高 24 位全部反转了！** 
+    - **结果**：**本来只该影响低 8 位的，结果把高 24 位全部反转了！**
     - **注意**：无论 `crc` 原本是多少（0 或 0xFFFFFFFF），异或 `0xFFFFFFFF` 都会导致高 24 位被错误反转，彻底破坏后续计算。
 
 因此，使用 `static_cast<uint8_t>` 把它强制转换为**无符号字节**（0-255），是处理二进制数据时的标准动作。
 
 ---
 
-## 7. 构建系统与 CMake
+## 8. 构建系统与 CMake
 
-### 7.1 为什么选择 CMake + G++？
+### 8.1 为什么选择 CMake + G++？
 本项目采用 **CMake** 作为构建系统，并推荐使用 **G++ (GCC)** 作为编译器。
 - **跨平台一致性**：G++ 是 Linux 环境下的标准编译器。在 Windows 上使用 G++ (MinGW-w64) 可以最大限度地模拟 Linux 的编译行为，减少因编译器差异导致的代码移植问题。
 - **构建标准化**：CMake 是 C++ 界的通用标准，能够自动处理依赖管理、编译选项配置和跨平台构建脚本生成。
 
-### 7.2 本项目的构建工具链
+### 8.2 本项目的构建工具链
 为了方便在 Windows 上进行类 Linux 开发，本项目配置了以下工具链：
 - **编译器**：G++ (MinGW-w64 GCC 15.2.0+)
 - **构建生成器**：Ninja (推荐) 或 MinGW Makefiles
@@ -907,7 +1110,7 @@ uint8_t byte = static_cast<uint8_t>(data[i]);
 
 该脚本会自动检测系统中的 `ninja` 和 `g++`，优先构建 MinGW 环境。
 
-### 7.3 如何搭建开发环境 (Windows)
+### 8.3 如何搭建开发环境 (Windows)
 为了获得最佳体验，建议安装 **MSYS2** 或直接下载 **MinGW-w64**。
 
 **推荐方案 (MSYS2)**：
@@ -918,7 +1121,7 @@ uint8_t byte = static_cast<uint8_t>(data[i]);
    ```
 3. 将 `C:\msys64\mingw64\bin` (默认路径) 添加到系统环境变量 PATH 中。
 
-### 7.4 使用 build.ps1 构建
+### 8.4 使用 build.ps1 构建
 在项目根目录下运行：
 ```powershell
 .\build.ps1
@@ -934,7 +1137,7 @@ uint8_t byte = static_cast<uint8_t>(data[i]);
 .\build.ps1 --clean
 ```
 
-### 7.5 运行与验证
+### 8.5 运行与验证
 构建完成后，你可以通过以下命令运行程序：
 
 **1. 运行 Demo 主程序**：
@@ -952,7 +1155,7 @@ ctest --test-dir build --output-on-failure
 .\build\bin\skiplist_test.exe
 ```
 
-### 7.6 VS Code 快捷键与集成
+### 8.6 VS Code 快捷键与集成
 项目已针对 VS Code 深度优化，推荐使用以下快捷方式：
 
 - **一键运行/调试**：按下 `F5`（会自动触发编译并运行主程序）。
@@ -961,9 +1164,9 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 8. 编码规范与文档化
- 
- ### 8.1 Doxygen 注释规范
+## 9. 编码规范与文档化
+
+### 9.1 Doxygen 注释规范
  本项目采用 Doxygen 风格的文档注释，以便于 IDE 智能提示和自动生成 API 文档。
  - **格式**：使用 `/** ... */` 开头。
  - **常用标签**：
@@ -971,14 +1174,14 @@ ctest --test-dir build --output-on-failure
    - `@tparam`：描述模板参数。
    - `@param`：描述函数参数。
    - `@return`：描述返回值。
- 
+
  ---
- 
- ## 9. 学习路径建议
+
+## 10. 学习路径建议
 1. **第一阶段：单机存储核心**
    - 实现一个线程安全的跳表（SkipList）。
-   - 学习如何使用 `mmap` 或 `fwrite` 实现 [WAL](#10-关键术语表)。
-   - 实现简单的 [SSTable](#10-关键术语表) 读取与查询。
+   - 学习如何使用 `mmap` 或 `fwrite` 实现 [WAL](#11-关键术语表)。
+   - 实现简单的 [SSTable](#11-关键术语表) 读取与查询。
 2. **第二阶段：Raft 算法实现**
    - 编写状态机逻辑。
    - 模拟节点间的 RPC 通信（可以先在单机模拟多个线程代表不同节点）。
@@ -987,8 +1190,8 @@ ctest --test-dir build --output-on-failure
    - 将 Raft 与 LSM-Tree 结合，实现真正的分布式 KV 存储。
 
 ---
- 
- ## 10. 关键术语表
+
+## 11. 关键术语表
 - **LSM-Tree (Log-Structured Merge-Tree)**：一种将随机写转换为顺序写的存储策略，通过内存 MemTable 和磁盘 SSTable 的多层合并实现。
 - **Raft**：一种易于理解的分布式共识算法，负责在集群中达成一致性。
 - **Term (任期)**：Raft 中的逻辑时间单位。
@@ -1004,12 +1207,12 @@ ctest --test-dir build --output-on-failure
 - **Write Amplification (写入放大)**：实际写入磁盘的数据量与用户请求写入的数据量之比。在 LSM-Tree 中，由于数据需要不断在各层之间进行合并重写，会产生较大的写入放大。
 - **Read Amplification (读取放大)**：为了找到一个 Key，需要查询多个文件（MemTable + 各层 SSTable）而导致的多次 I/O。
 - **Space Amplification (空间放大)**：由于保留了旧版本数据或被标记删除的数据，磁盘实际占用空间大于有效数据量。
- 
+
  ---
- 
- ## 11. 项目计划（周级细化）
- 
- ### 11.1 阶段 A：单机存储引擎（第 1–6 周）
+
+## 12. 项目计划（周级细化）
+
+### 12.1 阶段 A：单机存储引擎（第 1–6 周）
 
 **第 1 周：LSM-Tree 与 MemTable 基础**
 
@@ -1018,7 +1221,7 @@ ctest --test-dir build --output-on-failure
 *   **任务一：理论预热与环境准备（已完成）**
     *   **复习**：回顾本文第 2 章与第 3 章，深入理解 LSM-Tree 的顺序写优势及跳表的选型理由。
     *   **实战**：检查 C++ 编译器（推荐 MinGW-w64 G++）与 CMake 环境，确保与 Linux 开发体验一致。
- 
+
  *   **任务二：项目工程化搭建（已完成）**
     *   **实战**：创建项目目录结构：
          *   `src/`：源代码
@@ -1026,7 +1229,7 @@ ctest --test-dir build --output-on-failure
          *   `tests/`：测试代码
          *   `docs/`：文档
     *   **实战**：编写根目录 `CMakeLists.txt`，配置基础编译选项（建议开启 `-std=c++20`，以及 `-Wall -g`）。
- 
+
  *   **任务三：跳表核心数据结构设计（已完成）**
     *   **代码**：定义 `SkipList` 模板类（支持泛型 Key 和 Value）。
     *   **代码**：设计内部 `Node` 结构体：
@@ -1152,7 +1355,7 @@ ctest --test-dir build --output-on-failure
 
 本周目标：设计并实现 SSTable（Sorted String Table）的磁盘文件格式，完成从内存 MemTable 到磁盘文件的 Flush 流程，初步实现“分层存储”的雏形。
 
-*   **任务一：SSTable 物理布局设计 (On-Disk Layout)**
+*   **任务一：SSTable 物理布局设计 (On-Disk Layout) (已完成)**
     *   **理论**：理解 SSTable 的**不可变性 (Immutable)** 与 **有序性**。SSTable 一旦生成，永远不会被修改，只能被删除（Compaction 时）。
     *   **设计 (Block-based)**：
         *   **Data Block**：将数据按固定大小（如 4KB）切分，Block 内部有序存储 KV。Block 是 I/O 的最小单元。
@@ -1201,7 +1404,7 @@ ctest --test-dir build --output-on-failure
 - 开发任务：实现基础 Compaction 流程
 - 验收标准：磁盘文件数量可控，旧数据正确被淘汰
 
-### 11.2 阶段 B：Raft 共识协议（第 7–12 周）
+### 12.2 阶段 B：Raft 共识协议（第 7–12 周）
 
 **第 7 周：Raft 状态机框架**
 - 学习内容：Leader/Follower/Candidate 状态转移
@@ -1233,7 +1436,7 @@ ctest --test-dir build --output-on-failure
 - 开发任务：实现故障注入脚本与测试场景
 - 验收标准：Leader 崩溃后系统仍可完成选举
 
-### 11.3 阶段 C：网络层与集成（第 13–16 周）
+### 12.3 阶段 C：网络层与集成（第 13–16 周）
 
 **第 13 周：RPC 通信框架**
 - 学习内容：异步 IO、序列化协议
@@ -1255,7 +1458,7 @@ ctest --test-dir build --output-on-failure
 - 开发任务：模拟断网、节点崩溃、重启
 - 验收标准：系统保持强一致性
 
-### 11.4 阶段 D：工程化与展示（第 17–20 周）
+### 12.4 阶段 D：工程化与展示（第 17–20 周）
 
 **第 17 周：代码结构与工程化整理**
 - 学习内容：模块化设计与目录规范
@@ -1277,13 +1480,13 @@ ctest --test-dir build --output-on-failure
 - 开发任务：编写 Demo 流程与说明材料
 - 验收标准：能完整展示项目核心价值
 
-### 11.5 每周投入建议
+### 12.5 每周投入建议
 - 建议每周 12–20 小时投入
 - 若每周少于 10 小时，总周期可能延长至 6 个月以上
 
 ---
 
-## 12. 测试与验证（详见独立文档）
+## 13. 测试与验证（详见独立文档）
 
 本项目的完整测试指南、测试用例清单及历史验收记录已迁移至独立文档：
 
