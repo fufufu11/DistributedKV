@@ -54,11 +54,15 @@ target_link_libraries(kv_store_test PRIVATE DistributedKV_lib GTest::gtest_main)
 add_executable(wal_record_test tests/wal_record_test.cpp)
 target_link_libraries(wal_record_test PRIVATE DistributedKV_lib GTest::gtest_main)
 
+add_executable(sstable_builder_test tests/sstable_builder_test.cpp)
+target_link_libraries(sstable_builder_test PRIVATE DistributedKV_lib GTest::gtest_main)
+
 # 让 ctest 能够识别到此测试
 include(GoogleTest)
 gtest_discover_tests(skiplist_test)
 gtest_discover_tests(kv_store_test)
 gtest_discover_tests(wal_record_test)
+gtest_discover_tests(sstable_builder_test)
 
 # --- 打印状态 ---
 message(STATUS "--------------------------------------------")

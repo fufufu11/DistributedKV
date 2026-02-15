@@ -63,6 +63,11 @@
         - [7.7.1 什么是 static_cast？](#771-什么是-static_cast)
         - [7.7.2 为什么要取代 C 风格转换？](#772-为什么要取代-c-风格转换)
         - [7.7.3 实战场景：防止符号扩展 bug](#773-实战场景防止符号扩展-bug)
+    - [7.8 C++ 关键字：constexpr（编译期常量）](#78-c-关键字constexpr编译期常量)
+        - [7.8.1 `const` vs `constexpr` 核心区别](#781-const-vs-constexpr-核心区别)
+        - [7.8.2 代码示例对比](#782-代码示例对比)
+        - [7.8.3 为什么 `static const` 会链接失败？](#783-为什么-static-const-会链接失败)
+        - [7.8.4 一句话总结](#784-一句话总结)
 - [8. 构建系统与 CMake](#8-构建系统与-cmake)
     - [8.1 为什么选择 CMake + G++？](#81-为什么选择-cmake-g)
     - [8.2 本项目的构建工具链](#82-本项目的构建工具链)
@@ -1095,6 +1100,76 @@ uint8_t byte = static_cast<uint8_t>(data[i]);
 
 ---
 
+### 7.8 C++ 关键字：constexpr（编译期常量）
+
+`constexpr` 是 C++11 引入的关键字，用于声明**编译期常量**。它与 `const` 有本质区别。
+
+#### 7.8.1 `const` vs `constexpr` 核心区别
+
+| 特性 | `const` | `constexpr` |
+|------|---------|-------------|
+| 含义 | "只读" | "编译期常量" |
+| 初始化时机 | 运行时也可以 | **必须**编译时 |
+| 能否用于数组大小 | 不一定 | ✅ 一定可以 |
+| 能否用于模板参数 | 不一定 | ✅ 一定可以 |
+| 能否用于 `static` 成员 | 需要类外定义（C++17 前） | ✅ 直接在类内定义 |
+
+#### 7.8.2 代码示例对比
+
+```cpp
+// ========== const 示例 ==========
+
+int x = 10;
+const int a = x;        // ✅ 运行时初始化，合法
+// int arr[a];          // ❌ 编译错误！a 不是编译期常量
+
+const int b = 10;       // ✅ 编译期初始化
+int arr[b];             // ✅ 合法，但这是"碰巧"能工作
+
+// ========== constexpr 示例 ==========
+
+constexpr int c = 10;   // ✅ 强制编译期初始化
+int arr[c];             // ✅ 一定合法
+
+// int y = 10;
+// constexpr int d = y; // ❌ 编译错误！y 是运行时变量
+```
+
+#### 7.8.3 为什么 `static const` 会链接失败？
+
+在本项目的 `sstable.h` 中，最初使用的是：
+
+```cpp
+struct Footer {
+    static const uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
+};
+```
+
+**问题**：在某些使用场景下（如取地址、引用传递），编译器需要 `kMagic` 的"定义"。但 `static const` 成员变量只有声明，没有定义，链接器会报错：
+
+```
+undefined reference to `Footer::kTableMagicNumber'
+```
+
+**解决方案**：改用 `constexpr`
+
+```cpp
+struct Footer {
+    static constexpr uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
+};
+```
+
+`constexpr` 变量隐含 `inline`，声明即定义，链接器直接在编译期把值内联进去。
+
+#### 7.8.4 一句话总结
+
+- **`const`** = "这个变量不能被修改"（运行时只读）
+- **`constexpr`** = "这个值在编译时就确定了"（编译期常量）
+
+**推荐实践**：当你需要一个真正的常量（数组大小、模板参数、类静态成员）时，优先使用 `constexpr`。
+
+---
+
 ## 8. 构建系统与 CMake
 
 ### 8.1 为什么选择 CMake + G++？
@@ -1363,7 +1438,7 @@ ctest --test-dir build --output-on-failure
         *   **Footer**：文件末尾的定长区域（如 48 字节），记录 Index Block 的 Offset、Size 以及文件魔数 (Magic Number)。
     *   **产出**：在 `docs/format.md` 或头文件中明确字节级布局。
 
-*   **任务二：SSTable 构造器 (Builder)**
+*   **任务二：SSTable 构造器 (Builder) (已完成)**
     *   **类设计**：`SSTableBuilder`
     *   **核心逻辑**：
         *   `Add(key, value)`：接收来自 MemTable 的有序 KV 对。
@@ -1371,6 +1446,7 @@ ctest --test-dir build --output-on-failure
         *   **Index 构建**：每写入一个 Data Block，在内存中记录其 `Last Key` 和 `Offset`。
         *   `Finish()`：将内存中的 Index 数据写入文件，最后写入 Footer，关闭文件。
     *   **验收**：编写单元测试，手动构造 KV 调用 Builder，生成一个 `.sst` 文件，检查文件大小是否符合预期。
+    *   **测试结果**：`38/38 tests passed` (2026-02-15)，8 个新增测试用例全部通过。
 
 *   **任务三：SSTable 读取器 (Reader & Iterator)**
     *   **类设计**：`SSTable` (Reader)

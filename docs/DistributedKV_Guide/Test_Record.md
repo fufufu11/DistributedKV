@@ -17,6 +17,7 @@
 - `tests/skiplist_test.cpp`：跳表核心逻辑测试（insert/search/remove）
 - `tests/kv_store_test.cpp`：KVStore 整体集成测试（目录管理、WAL 检测、Put/Get 接口）
 - `tests/wal_record_test.cpp`：WAL 记录编解码与 CRC32 校验测试
+- `tests/sstable_builder_test.cpp`：SSTable 构造器测试（文件创建、数据写入、Footer 校验）
 
 **运行方式**：
 ```powershell
@@ -82,6 +83,17 @@ ctest --test-dir build --output-on-failure
 - **TruncateMidRecord**：将 WAL 截断到某条记录中间，重启仅恢复完整前缀且不崩溃。
 - **CorruptMiddleRecordStopsAtPrefix**：中间记录损坏时，重启仅恢复损坏记录之前的前缀并停止。
 
+### 2.5 SSTable 构造器测试 (`tests/sstable_builder_test.cpp`)
+
+覆盖 SSTable 文件构建的核心逻辑 (第 4 周 Task 2)：
+- **文件创建**：验证 SSTable 文件能正确创建，至少包含 48 字节 Footer。
+- **数据写入**：验证 `Add()` 方法正常工作，文件大小随数据增长。
+- **Footer 校验**：验证 Footer 末尾 Magic Number 正确。
+- **RAII 行为**：验证析构函数自动调用 `Finish()`，即使忘记显式调用。
+- **多 Block 场景**：验证大量数据触发多个 Block 写入。
+- **状态管理**：验证 `FileSize()` 和 `Finished()` 返回值正确。
+- **异常处理**：验证重复调用 `Finish()` 抛出异常。
+
 ---
 
 ## 3. 历史测试记录
@@ -116,3 +128,18 @@ ctest --test-dir build --output-on-failure
     - 结果：`30/30 tests passed`
     - 新增用例：`WALReplayTest` (`BulkRecovery1000`, `MixedPutDelRecovery`, `TruncateMidRecord`, `CorruptMiddleRecordStopsAtPrefix`)。
     - 验证点：覆盖大批量重启恢复、Put/Delete 混合恢复、记录中途截断恢复前缀、以及中间记录损坏 fail-stop 行为。
+
+### 第 4 周：SSTable 文件格式与 Flush 流程
+
+- **2026-02-15**：SSTable 构造器验收通过 (Task 2)
+    - 结果：`38/38 tests passed` (全量)
+    - 新增用例：`SSTableBuilderTest` (8 个)
+        - `CreatesFileWithFooter`：验证空 SSTable 文件至少包含 48 字节 Footer
+        - `WritesSmallData`：验证少量 KV 对写入后文件增长
+        - `FooterMagicNumberCorrect`：验证 Footer 末尾 Magic Number 正确
+        - `AutoFinishOnDestruction`：验证 RAII 行为（析构时自动 Finish）
+        - `WritesMultipleBlocks`：验证大量数据触发多个 Block 写入
+        - `FileSizeAccurate`：验证 `FileSize()` 返回值与实际文件大小一致
+        - `FinishedStateCorrect`：验证 `Finished()` 状态转换正确
+        - `DoubleFinishThrows`：验证重复调用 `Finish()` 抛出异常
+    - 验证点：SSTableBuilder 能正确创建文件、写入数据、生成 Footer，RAII 行为正确。

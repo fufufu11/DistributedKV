@@ -19,11 +19,12 @@ DistributedKV 旨在通过“手写核心组件”的方式，深度解析现代
 
 | 模块 | 功能 | 状态 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **MemTable** | SkipList (跳表) | 完成 | 支持 Insert/Search/Remove，基于随机层数优化 |
-| **Storage** | KVStore 骨架 | 完成 | 统一管理内存与磁盘资源，提供对外接口 |
-| **Persistence** | WAL Writer | 完成 | 实现 `Write -> Flush -> Sync` 强持久化链路 |
-| **Persistence** | WAL Reader | 完成 | 实现基于 Checksum 的崩溃恢复 (Crash Recovery) |
-| **Storage** | SSTable | 开发中 | 已完成文件格式设计与文档，Builder/Reader 待实现 |
+| **MemTable** | SkipList (跳表) | ✅ 完成 | 支持 Insert/Search/Remove，基于随机层数优化 |
+| **Storage** | KVStore 骨架 | ✅ 完成 | 统一管理内存与磁盘资源，提供对外接口 |
+| **Persistence** | WAL Writer | ✅ 完成 | 实现 `Write -> Flush -> Sync` 强持久化链路 |
+| **Persistence** | WAL Reader | ✅ 完成 | 实现基于 Checksum 的崩溃恢复 (Crash Recovery) |
+| **Storage** | SSTable Builder | ✅ 完成 | 实现 Data Block 写入、Index Block 构建、Footer 生成 |
+| **Storage** | SSTable Reader | 开发中 | 文件读取、Index 解析、迭代器接口 |
 | **Consensus** | Raft | 计划中 | Leader 选举与日志复制 |
 
 详细的学习路径与任务拆解请参考：[项目学习手册 (Learning Manual)](docs/DistributedKV_Guide/Learning_Manual.md)
@@ -83,7 +84,8 @@ DistributedKV/
 │   ├── kv_store.h      # 存储引擎入口 (含 WAL 恢复逻辑)
 │   ├── skiplist.h      # 跳表实现
 │   ├── wal_record.h    # WAL 格式定义
-│   └── sstable.h       # SSTable 文件结构定义（开发中）
+│   ├── sstable.h       # SSTable 文件结构定义
+│   └── sstable_builder.h # SSTable 构造器
 ├── src/                # 源代码
 │   └── main.cpp        # 演示程序入口
 ├── tests/              # 单元测试 (GTest)
@@ -96,6 +98,9 @@ DistributedKV/
 - **SkipList**: 覆盖顺序/随机插入、查询、删除与边界条件。
 - **WAL**: 验证编码正确性、Checksum 校验以及断电恢复能力。
 - **Recovery**: 模拟数据截断与损坏，验证恢复流程的健壮性。
+- **SSTable**: 验证文件创建、Block 写入、Footer 校验与 RAII 行为。
+
+当前测试覆盖：**38 个测试用例全部通过**
 
 查看详细测试记录：[Test_Record.md](docs/DistributedKV_Guide/Test_Record.md)
 
